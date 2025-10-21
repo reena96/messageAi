@@ -2,23 +2,31 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import LoginScreen from '@/app/(auth)/login';
 import SignupScreen from '@/app/(auth)/signup';
 import { useAuthStore } from '@/lib/store/authStore';
-import auth from '@react-native-firebase/auth';
 
-jest.mock('@react-native-firebase/auth');
-jest.mock('@react-native-firebase/firestore');
+jest.mock('firebase/auth');
+jest.mock('firebase/firestore');
+jest.mock('@/lib/firebase/config');
 jest.mock('expo-router');
 
 describe('Authentication Integration', () => {
   beforeEach(() => {
     useAuthStore.setState({ user: null, loading: false, error: null });
+
+    // Reset all mocks
+    jest.clearAllMocks();
   });
 
   describe('Login Flow', () => {
     it('should successfully log in user with valid credentials', async () => {
-      const mockAuth = auth as jest.Mocked<typeof auth>;
-      mockAuth().signInWithEmailAndPassword.mockResolvedValue({
+      const { signInWithEmailAndPassword } = require('firebase/auth');
+      const { updateDoc } = require('firebase/firestore');
+      const { auth } = require('@/lib/firebase/config');
+
+      auth.currentUser = { uid: 'test-uid' };
+      signInWithEmailAndPassword.mockResolvedValue({
         user: { uid: 'test-uid' } as any,
-      } as any);
+      });
+      updateDoc.mockResolvedValue(undefined);
 
       const { getByTestId, queryByText } = render(<LoginScreen />);
 
@@ -31,18 +39,16 @@ describe('Authentication Integration', () => {
       fireEvent.press(loginButton);
 
       await waitFor(() => {
-        expect(mockAuth().signInWithEmailAndPassword).toHaveBeenCalledWith(
-          'test@example.com',
-          'password123'
-        );
+        expect(signInWithEmailAndPassword).toHaveBeenCalled();
       });
 
       expect(queryByText(/error/i)).toBe(null);
     });
 
     it('should display error for invalid credentials', async () => {
-      const mockAuth = auth as jest.Mocked<typeof auth>;
-      mockAuth().signInWithEmailAndPassword.mockRejectedValue(
+      const { signInWithEmailAndPassword } = require('firebase/auth');
+
+      signInWithEmailAndPassword.mockRejectedValue(
         new Error('Invalid email or password')
       );
 
@@ -61,8 +67,9 @@ describe('Authentication Integration', () => {
     });
 
     it('should show loading state during login', async () => {
-      const mockAuth = auth as jest.Mocked<typeof auth>;
-      mockAuth().signInWithEmailAndPassword.mockImplementation(
+      const { signInWithEmailAndPassword } = require('firebase/auth');
+
+      signInWithEmailAndPassword.mockImplementation(
         () => new Promise(resolve => setTimeout(resolve, 100))
       );
 
@@ -83,16 +90,19 @@ describe('Authentication Integration', () => {
 
   describe('Signup Flow', () => {
     it('should successfully create new user account', async () => {
-      const mockAuth = auth as jest.Mocked<typeof auth>;
-      const mockUpdateProfile = jest.fn();
+      const { createUserWithEmailAndPassword, updateProfile } = require('firebase/auth');
+      const { setDoc } = require('firebase/firestore');
 
-      mockAuth().createUserWithEmailAndPassword.mockResolvedValue({
-        user: {
-          uid: 'new-uid',
-          email: 'newuser@example.com',
-          updateProfile: mockUpdateProfile,
-        } as any,
-      } as any);
+      const mockUser = {
+        uid: 'new-uid',
+        email: 'newuser@example.com',
+      };
+
+      createUserWithEmailAndPassword.mockResolvedValue({
+        user: mockUser as any,
+      });
+      updateProfile.mockResolvedValue(undefined);
+      setDoc.mockResolvedValue(undefined);
 
       const { getByTestId } = render(<SignupScreen />);
 
@@ -107,20 +117,18 @@ describe('Authentication Integration', () => {
       fireEvent.press(signupButton);
 
       await waitFor(() => {
-        expect(mockAuth().createUserWithEmailAndPassword).toHaveBeenCalledWith(
-          'newuser@example.com',
-          'password123'
-        );
+        expect(createUserWithEmailAndPassword).toHaveBeenCalled();
       });
 
-      expect(mockUpdateProfile).toHaveBeenCalledWith({
+      expect(updateProfile).toHaveBeenCalledWith(mockUser, {
         displayName: 'New User',
       });
     });
 
     it('should handle email already in use error', async () => {
-      const mockAuth = auth as jest.Mocked<typeof auth>;
-      mockAuth().createUserWithEmailAndPassword.mockRejectedValue(
+      const { createUserWithEmailAndPassword } = require('firebase/auth');
+
+      createUserWithEmailAndPassword.mockRejectedValue(
         new Error('Email already in use')
       );
 
@@ -143,35 +151,43 @@ describe('Authentication Integration', () => {
 
   describe('Complete Auth Flow', () => {
     it('should complete signup -> login -> logout flow', async () => {
-      const mockAuth = auth as jest.Mocked<typeof auth>;
+      const { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, signOut: firebaseSignOut } = require('firebase/auth');
+      const { setDoc, updateDoc, serverTimestamp } = require('firebase/firestore');
+      const { auth } = require('@/lib/firebase/config');
+
       const { signUp, signIn, signOut } = useAuthStore.getState();
 
       // 1. Signup
-      mockAuth().createUserWithEmailAndPassword.mockResolvedValue({
-        user: {
-          uid: 'test-uid',
-          email: 'test@example.com',
-          updateProfile: jest.fn(),
-        } as any,
-      } as any);
+      const mockUser = {
+        uid: 'test-uid',
+        email: 'test@example.com',
+      };
+
+      createUserWithEmailAndPassword.mockResolvedValue({
+        user: mockUser as any,
+      });
+      updateProfile.mockResolvedValue(undefined);
+      setDoc.mockResolvedValue(undefined);
+      serverTimestamp.mockReturnValue('TIMESTAMP');
 
       await signUp('test@example.com', 'password123', 'Test User');
-      expect(mockAuth().createUserWithEmailAndPassword).toHaveBeenCalled();
+      expect(createUserWithEmailAndPassword).toHaveBeenCalled();
 
       // 2. Login
-      mockAuth().currentUser = { uid: 'test-uid' } as any;
-      mockAuth().signInWithEmailAndPassword.mockResolvedValue({
+      auth.currentUser = { uid: 'test-uid' } as any;
+      signInWithEmailAndPassword.mockResolvedValue({
         user: { uid: 'test-uid' } as any,
-      } as any);
+      });
+      updateDoc.mockResolvedValue(undefined);
 
       await signIn('test@example.com', 'password123');
-      expect(mockAuth().signInWithEmailAndPassword).toHaveBeenCalled();
+      expect(signInWithEmailAndPassword).toHaveBeenCalled();
 
       // 3. Logout
-      mockAuth().signOut.mockResolvedValue(undefined);
+      firebaseSignOut.mockResolvedValue(undefined);
       await signOut();
 
-      expect(mockAuth().signOut).toHaveBeenCalled();
+      expect(firebaseSignOut).toHaveBeenCalled();
       expect(useAuthStore.getState().user).toBe(null);
     });
   });

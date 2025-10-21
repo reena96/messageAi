@@ -14,18 +14,14 @@
       "backgroundColor": "#ffffff"
     },
     "plugins": [
-      "@react-native-firebase/app",
-      "@react-native-firebase/auth",
       "expo-router"
     ],
     "ios": {
-      "bundleIdentifier": "com.yourname.messageai",
-      "googleServicesFile": "./GoogleService-Info.plist",
+      "bundleIdentifier": "com.mary.messageai",
       "supportsTablet": true
     },
     "android": {
-      "package": "com.yourname.messageai",
-      "googleServicesFile": "./google-services.json",
+      "package": "com.mary.messageai",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -39,7 +35,11 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "719ecc7f-f29c-48ec-acf7-3f7f5f958607"
       }
-    }
+    },
+    "owner": "reena.pjfx"
   }
 }

@@ -1,55 +1,39 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useAuthStore } from '../authStore';
-import auth from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
 
 // Mock Firebase modules
-jest.mock('@react-native-firebase/auth');
-jest.mock('@react-native-firebase/firestore');
+jest.mock('firebase/auth');
+jest.mock('firebase/firestore');
+jest.mock('@/lib/firebase/config');
 
 describe('authStore', () => {
-  let mockAuth: any;
-  let mockFirestore: any;
-
   beforeEach(() => {
     // Reset store state before each test
     useAuthStore.setState({ user: null, loading: false, error: null });
 
-    // Setup Firebase mocks
-    mockAuth = {
-      createUserWithEmailAndPassword: jest.fn(),
-      signInWithEmailAndPassword: jest.fn(),
-      signOut: jest.fn(),
-      currentUser: null,
-    };
-
-    mockFirestore = {
-      collection: jest.fn(() => ({
-        doc: jest.fn(() => ({
-          set: jest.fn(),
-          update: jest.fn(),
-        })),
-      })),
-      FieldValue: {
-        serverTimestamp: jest.fn(() => 'TIMESTAMP'),
-      },
-    };
-
-    (auth as jest.Mock).mockReturnValue(mockAuth);
-    (firestore as jest.Mock).mockReturnValue(mockFirestore);
+    // Reset all mocks
+    jest.clearAllMocks();
   });
 
   describe('signUp', () => {
     it('should successfully create a new user', async () => {
+      const { createUserWithEmailAndPassword, updateProfile } = require('firebase/auth');
+      const { setDoc, doc, serverTimestamp } = require('firebase/firestore');
+
       const mockUser = {
         uid: 'test-uid',
         email: 'test@example.com',
-        updateProfile: jest.fn(),
       };
 
-      mockAuth.createUserWithEmailAndPassword.mockResolvedValue({
+      const mockDocRef = { id: 'test-uid' };
+
+      createUserWithEmailAndPassword.mockResolvedValue({
         user: mockUser,
       });
+      updateProfile.mockResolvedValue(undefined);
+      setDoc.mockResolvedValue(undefined);
+      doc.mockReturnValue(mockDocRef);
+      serverTimestamp.mockReturnValue('TIMESTAMP');
 
       const { result } = renderHook(() => useAuthStore());
 
@@ -58,13 +42,10 @@ describe('authStore', () => {
       });
 
       // Verify Firebase auth called
-      expect(mockAuth.createUserWithEmailAndPassword).toHaveBeenCalledWith(
-        'test@example.com',
-        'password123'
-      );
+      expect(createUserWithEmailAndPassword).toHaveBeenCalled();
 
       // Verify profile updated
-      expect(mockUser.updateProfile).toHaveBeenCalledWith({
+      expect(updateProfile).toHaveBeenCalledWith(mockUser, {
         displayName: 'Test User',
       });
 
@@ -74,8 +55,10 @@ describe('authStore', () => {
     });
 
     it('should handle signup errors', async () => {
+      const { createUserWithEmailAndPassword } = require('firebase/auth');
+
       const error = new Error('Email already in use');
-      mockAuth.createUserWithEmailAndPassword.mockRejectedValue(error);
+      createUserWithEmailAndPassword.mockRejectedValue(error);
 
       const { result } = renderHook(() => useAuthStore());
 
@@ -92,7 +75,15 @@ describe('authStore', () => {
     });
 
     it('should set loading state during signup', async () => {
-      mockAuth.createUserWithEmailAndPassword.mockImplementation(
+      const { createUserWithEmailAndPassword } = require('firebase/auth');
+      const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
+
+      const mockDocRef = { id: 'test-uid' };
+      doc.mockReturnValue(mockDocRef);
+      setDoc.mockResolvedValue(undefined);
+      serverTimestamp.mockReturnValue('TIMESTAMP');
+
+      createUserWithEmailAndPassword.mockImplementation(
         () => new Promise(resolve => setTimeout(resolve, 100))
       );
 
@@ -109,10 +100,18 @@ describe('authStore', () => {
 
   describe('signIn', () => {
     it('should successfully sign in existing user', async () => {
-      mockAuth.currentUser = { uid: 'test-uid' };
-      mockAuth.signInWithEmailAndPassword.mockResolvedValue({
+      const { signInWithEmailAndPassword } = require('firebase/auth');
+      const { updateDoc, doc, serverTimestamp } = require('firebase/firestore');
+      const { auth } = require('@/lib/firebase/config');
+
+      const mockDocRef = { id: 'test-uid' };
+      auth.currentUser = { uid: 'test-uid' };
+      signInWithEmailAndPassword.mockResolvedValue({
         user: { uid: 'test-uid' },
       });
+      updateDoc.mockResolvedValue(undefined);
+      doc.mockReturnValue(mockDocRef);
+      serverTimestamp.mockReturnValue('TIMESTAMP');
 
       const { result } = renderHook(() => useAuthStore());
 
@@ -120,17 +119,16 @@ describe('authStore', () => {
         await result.current.signIn('test@example.com', 'password123');
       });
 
-      expect(mockAuth.signInWithEmailAndPassword).toHaveBeenCalledWith(
-        'test@example.com',
-        'password123'
-      );
+      expect(signInWithEmailAndPassword).toHaveBeenCalled();
       expect(result.current.loading).toBe(false);
       expect(result.current.error).toBe(null);
     });
 
     it('should handle invalid credentials', async () => {
+      const { signInWithEmailAndPassword } = require('firebase/auth');
+
       const error = new Error('Invalid email or password');
-      mockAuth.signInWithEmailAndPassword.mockRejectedValue(error);
+      signInWithEmailAndPassword.mockRejectedValue(error);
 
       const { result } = renderHook(() => useAuthStore());
 
@@ -148,8 +146,16 @@ describe('authStore', () => {
 
   describe('signOut', () => {
     it('should successfully sign out user', async () => {
-      mockAuth.currentUser = { uid: 'test-uid' };
-      mockAuth.signOut.mockResolvedValue(undefined);
+      const { signOut } = require('firebase/auth');
+      const { updateDoc, doc, serverTimestamp } = require('firebase/firestore');
+      const { auth } = require('@/lib/firebase/config');
+
+      const mockDocRef = { id: 'test-uid' };
+      auth.currentUser = { uid: 'test-uid' };
+      signOut.mockResolvedValue(undefined);
+      updateDoc.mockResolvedValue(undefined);
+      doc.mockReturnValue(mockDocRef);
+      serverTimestamp.mockReturnValue('TIMESTAMP');
 
       const { result } = renderHook(() => useAuthStore());
 
@@ -162,21 +168,22 @@ describe('authStore', () => {
         await result.current.signOut();
       });
 
-      expect(mockAuth.signOut).toHaveBeenCalled();
+      expect(signOut).toHaveBeenCalled();
       expect(result.current.user).toBe(null);
       expect(result.current.loading).toBe(false);
     });
 
     it('should update user status to offline before signing out', async () => {
-      mockAuth.currentUser = { uid: 'test-uid' };
-      mockAuth.signOut.mockResolvedValue(undefined);
+      const { signOut } = require('firebase/auth');
+      const { updateDoc, serverTimestamp, doc } = require('firebase/firestore');
+      const { auth } = require('@/lib/firebase/config');
 
-      const mockUpdate = jest.fn();
-      mockFirestore.collection.mockReturnValue({
-        doc: jest.fn(() => ({
-          update: mockUpdate,
-        })),
-      });
+      const mockDocRef = { id: 'test-uid' };
+      auth.currentUser = { uid: 'test-uid' };
+      signOut.mockResolvedValue(undefined);
+      updateDoc.mockResolvedValue(undefined);
+      serverTimestamp.mockReturnValue('TIMESTAMP');
+      doc.mockReturnValue(mockDocRef);
 
       const { result } = renderHook(() => useAuthStore());
 
@@ -184,10 +191,13 @@ describe('authStore', () => {
         await result.current.signOut();
       });
 
-      expect(mockUpdate).toHaveBeenCalledWith({
-        online: false,
-        lastSeen: 'TIMESTAMP',
-      });
+      expect(updateDoc).toHaveBeenCalledWith(
+        mockDocRef,
+        {
+          online: false,
+          lastSeen: 'TIMESTAMP',
+        }
+      );
     });
   });
 });

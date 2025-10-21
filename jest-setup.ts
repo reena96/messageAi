@@ -1,16 +1,72 @@
-// Mock Firebase
-jest.mock('@react-native-firebase/app', () => ({}));
-jest.mock('@react-native-firebase/auth', () => ({
-  __esModule: true,
-  default: jest.fn(() => ({})),
+// Mock Firebase JS SDK
+jest.mock('firebase/app', () => ({
+  initializeApp: jest.fn(() => ({
+    name: '[DEFAULT]',
+  })),
 }));
-jest.mock('@react-native-firebase/firestore', () => ({
-  __esModule: true,
-  default: jest.fn(() => ({})),
+
+jest.mock('firebase/auth', () => ({
+  initializeAuth: jest.fn(() => ({
+    app: { name: '[DEFAULT]' },
+    currentUser: null,
+  })),
+  getAuth: jest.fn(() => ({
+    app: { name: '[DEFAULT]' },
+    currentUser: null,
+  })),
+  getReactNativePersistence: jest.fn(),
+  createUserWithEmailAndPassword: jest.fn(),
+  signInWithEmailAndPassword: jest.fn(),
+  signOut: jest.fn(),
+  updateProfile: jest.fn(),
+  onAuthStateChanged: jest.fn((auth, callback) => {
+    callback(null);
+    return jest.fn(); // unsubscribe
+  }),
 }));
-jest.mock('@react-native-firebase/storage', () => ({
+
+jest.mock('firebase/firestore', () => ({
+  getFirestore: jest.fn(() => ({
+    app: { name: '[DEFAULT]' },
+  })),
+  doc: jest.fn(),
+  setDoc: jest.fn(),
+  updateDoc: jest.fn(),
+  serverTimestamp: jest.fn(() => 'TIMESTAMP'),
+}));
+
+jest.mock('firebase/storage', () => ({
+  getStorage: jest.fn(() => ({
+    app: { name: '[DEFAULT]' },
+  })),
+  ref: jest.fn(),
+  uploadBytes: jest.fn(),
+  getDownloadURL: jest.fn(),
+}));
+
+// Mock AsyncStorage
+jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
-  default: jest.fn(() => ({})),
+  default: {
+    setItem: jest.fn(),
+    getItem: jest.fn(),
+    removeItem: jest.fn(),
+    clear: jest.fn(),
+  },
+}));
+
+// Mock Firebase config
+jest.mock('./lib/firebase/config', () => ({
+  auth: {
+    app: { name: '[DEFAULT]' },
+    currentUser: null,
+  },
+  firestore: {
+    app: { name: '[DEFAULT]' },
+  },
+  storage: {
+    app: { name: '[DEFAULT]' },
+  },
 }));
 
 // Mock expo-router

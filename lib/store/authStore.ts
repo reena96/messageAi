@@ -1,9 +1,16 @@
 import { create } from 'zustand';
-import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  updateProfile,
+  User
+} from 'firebase/auth';
+import { doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, firestore } from '../firebase/config';
 
 interface AuthState {
-  user: FirebaseAuthTypes.User | null;
+  user: User | null;
   loading: boolean;
   error: string | null;
 
@@ -11,7 +18,7 @@ interface AuthState {
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  setUser: (user: FirebaseAuthTypes.User | null) => void;
+  setUser: (user: User | null) => void;
   clearError: () => void;
 }
 
@@ -27,20 +34,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ loading: true, error: null });
 
       // Create auth user
-      const userCredential = await auth().createUserWithEmailAndPassword(email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
 
       // Update profile
-      await userCredential.user.updateProfile({ displayName });
+      await updateProfile(userCredential.user, { displayName });
 
       // Create Firestore user document
-      await firestore().collection('users').doc(userCredential.user.uid).set({
+      await setDoc(doc(firestore, 'users', userCredential.user.uid), {
         id: userCredential.user.uid,
         email,
         displayName,
         online: true,
-        lastSeen: firestore.FieldValue.serverTimestamp(),
-        createdAt: firestore.FieldValue.serverTimestamp(),
-        updatedAt: firestore.FieldValue.serverTimestamp(),
+        lastSeen: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
 
       set({ loading: false });
@@ -55,14 +62,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
-      await auth().signInWithEmailAndPassword(email, password);
+      await signInWithEmailAndPassword(auth, email, password);
 
       // Update online status
-      const currentUser = auth().currentUser;
+      const currentUser = auth.currentUser;
       if (currentUser) {
-        await firestore().collection('users').doc(currentUser.uid).update({
+        await updateDoc(doc(firestore, 'users', currentUser.uid), {
           online: true,
-          lastSeen: firestore.FieldValue.serverTimestamp(),
+          lastSeen: serverTimestamp(),
         });
       }
 
@@ -79,15 +86,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ loading: true, error: null });
 
       // Update user status before signing out
-      const currentUser = auth().currentUser;
+      const currentUser = auth.currentUser;
       if (currentUser) {
-        await firestore().collection('users').doc(currentUser.uid).update({
+        await updateDoc(doc(firestore, 'users', currentUser.uid), {
           online: false,
-          lastSeen: firestore.FieldValue.serverTimestamp(),
+          lastSeen: serverTimestamp(),
         });
       }
 
-      await auth().signOut();
+      await firebaseSignOut(auth);
       set({ user: null, loading: false });
     } catch (error: any) {
       set({ loading: false, error: error.message });
