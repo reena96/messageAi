@@ -27,7 +27,7 @@ This PRD is sharded into focused documents for easy navigation:
    - Security & Firestore rules
    - Performance targets
 
-3. **[03-messaging-infrastructure.md](./03-messaging-infrastructure.md)** ← *Coming next*
+3. **[03-messaging-infrastructure.md](./03-messaging-infrastructure.md)**
    - Real-time sync patterns (Firestore listeners)
    - Offline-first architecture (8 pages deep dive)
    - Optimistic UI implementation
@@ -35,13 +35,11 @@ This PRD is sharded into focused documents for easy navigation:
    - Group chat delivery tracking
    - Common pitfalls & solutions
 
-4. **[04-implementation-guide.md](./04-implementation-guide.md)** ← *Coming next*
-   - Complete PR breakdown (PR #1-13)
-   - Detailed tasks for each PR
-   - Files to create/edit
-   - Validation criteria
-   - Parallel development strategy
-   - Git workflow
+4. **[04-implementation-guide.md](./04-implementation-guide.md)**
+   - Complete reference implementation (PR #1-6)
+   - Detailed code examples
+   - Full implementation details
+   - **Note:** This is the comprehensive reference. Use the sharded guides below for step-by-step implementation.
 
 5. **[05-rubric-alignment.md](./05-rubric-alignment.md)**
    - Complete rubric checklist
@@ -49,35 +47,99 @@ This PRD is sharded into focused documents for easy navigation:
    - Performance measurement guide
    - Pre-submission checklist
 
+### 🎯 Implementation Shards (Use These!)
+
+**Recommended for step-by-step development:**
+
+6. **[06-implementation-foundation.md](./06-implementation-foundation.md)** - PR #1
+   - Project setup + Authentication
+   - 13 tests included
+   - 2-3 hours
+
+7. **[07-implementation-core-messaging.md](./07-implementation-core-messaging.md)** - PR #2-3
+   - Core UI + Real-time messaging
+   - 22 tests included
+   - 11-14 hours
+
+8. **[08-implementation-resilience.md](./08-implementation-resilience.md)** - PR #4-5
+   - Offline support + Group chat
+   - 17 tests included
+   - MVP checkpoint
+   - 10-13 hours
+
+9. **[09-implementation-ai-features.md](./09-implementation-ai-features.md)** - PR #6-8
+   - Calendar, Decisions, Priority, RSVP, Deadlines
+   - 29 accuracy tests included
+   - 12-15 hours
+
+10. **[10-implementation-advanced.md](./10-implementation-advanced.md)** - PR #9-11
+    - Proactive Assistant (LangChain)
+    - Performance optimization
+    - Bonus features
+    - Documentation
+    - 17 tests included
+    - 17-23 hours
+
+11. **[11-testing-strategy.md](./11-testing-strategy.md)**
+    - Complete testing guide
+    - TDD workflow
+    - Test types explained
+    - ~100 tests total
+
+12. **[IMPLEMENTATION_SHARDING_PLAN.md](./IMPLEMENTATION_SHARDING_PLAN.md)**
+    - Overview of sharded structure
+    - Benefits for coding agents
+    - How to use the shards
+
 ---
 
 ## Quick Start
 
-**Day 1 Morning (0-4h):**
-1. Read [01-messageai-prd.md](./01-messageai-prd.md) sections 1-3
-2. Read [02-technical-architecture.md](./02-technical-architecture.md) section 1
-3. Start PR #1 from [04-implementation-guide.md](./04-implementation-guide.md)
+**For Coding Agents - Use This Workflow:**
 
-**Throughout Development:**
-- Reference [03-messaging-infrastructure.md](./03-messaging-infrastructure.md) for offline/real-time patterns
-- Track progress with [05-rubric-alignment.md](./05-rubric-alignment.md)
+1. **Read Context** (30 min)
+   - [01-messageai-prd.md](./01-messageai-prd.md) - Understand requirements
+   - [02-technical-architecture.md](./02-technical-architecture.md) - Tech stack
+
+2. **Follow Implementation Shards** (in order)
+   - [06-implementation-foundation.md](./06-implementation-foundation.md) - Start here
+   - [07-implementation-core-messaging.md](./07-implementation-core-messaging.md)
+   - [08-implementation-resilience.md](./08-implementation-resilience.md) ← MVP checkpoint
+   - [09-implementation-ai-features.md](./09-implementation-ai-features.md)
+   - [10-implementation-advanced.md](./10-implementation-advanced.md)
+
+3. **Use Testing Guide**
+   - [11-testing-strategy.md](./11-testing-strategy.md) - TDD workflow
+
+4. **Reference When Needed:**
+   - [03-messaging-infrastructure.md](./03-messaging-infrastructure.md) - Offline/real-time patterns
+   - [04-implementation-guide.md](./04-implementation-guide.md) - Complete code examples
+
+5. **Track Progress:**
+   - [05-rubric-alignment.md](./05-rubric-alignment.md) - Rubric checklist
 
 ---
 
 ## How to Use This Documentation
 
 ### For Planning
-- Read 01-messageai-prd.md completely
+- Read [01-messageai-prd.md](./01-messageai-prd.md) completely
 - Understand persona pain points
 - Review timeline and milestones
 
-### For Implementation  
-- Follow 04-implementation-guide.md PR-by-PR
-- Reference 02-technical-architecture.md for data models
-- Reference 03-messaging-infrastructure.md for complex patterns
+### For Implementation
+- **NEW: Follow implementation shards (06-10) step-by-step**
+- Each shard includes tests, validation, and time estimates
+- Reference [04-implementation-guide.md](./04-implementation-guide.md) for complete code
+- Reference [03-messaging-infrastructure.md](./03-messaging-infrastructure.md) for complex patterns
+
+### For Testing
+- Use [11-testing-strategy.md](./11-testing-strategy.md) for TDD workflow
+- Write tests first (RED), implement (GREEN), refactor (REFACTOR)
+- ~100 tests total across all phases
 
 ### For Quality Assurance
-- Use 05-rubric-alignment.md as checklist
+- Use [05-rubric-alignment.md](./05-rubric-alignment.md) as checklist
 - Document all performance measurements
 - Verify each requirement before submission
 
