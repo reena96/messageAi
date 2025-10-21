@@ -23,6 +23,10 @@
 
 MessageAI uses Firebase Firestore with react-native-firebase for offline-first messaging. This document explains the patterns and implementation details.
 
+📊 **Visual Diagrams:**
+- **[Message Flow Diagrams](./diagrams/MessageFlow.md)** - Complete message lifecycle, real-time sync sequences, and optimistic UI patterns
+- **[Offline-First Diagrams](./diagrams/OfflineFirst.md)** - Offline scenarios, network handling, and sync recovery flows
+
 ### Key Principles
 
 1. **Offline-first:** App works without internet, syncs when connected

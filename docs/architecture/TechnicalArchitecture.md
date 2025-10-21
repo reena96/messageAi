@@ -61,6 +61,8 @@
 
 ## 2. System Architecture
 
+📊 **[View Visual Diagrams](./diagrams/SystemArchitecture.md)** - Interactive Mermaid diagrams showing all architecture layers, component dependencies, and data flows.
+
 ### High-Level Architecture
 
 ```
@@ -143,6 +145,8 @@ Offline Scenario:
 ---
 
 ## 3. Data Models
+
+📊 **[View Data Model Diagrams](./diagrams/DataModels.md)** - Entity relationship diagrams, collection structures, and data relationship visualizations.
 
 ### Users Collection: `/users/{userId}`
 
