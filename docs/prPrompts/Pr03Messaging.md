@@ -37,6 +37,182 @@ Read these files in order for context:
 
 ---
 
+## 🏗️ Architecture Context
+
+### Relevant Architecture References
+
+For this PR, review these specific sections in the architecture documents:
+
+**From `docs/architecture/TechnicalArchitecture.md`:**
+- **Section 2: System Architecture** → Complete system diagram
+  - Focus: Mobile App Layer (Chat screen, Message components, messageStore)
+  - Focus: Local Storage Layer (SQLite cache, optimistic UI, offline queue)
+  - Focus: Firebase Backend (Messages subcollection, real-time sync)
+  - **Section 2: Message Flow** → 7-step message delivery flow (CRITICAL for understanding)
+
+- **Section 3: Data Models** → Messages Subcollection: `/chats/{chatId}/messages/{messageId}`
+  - Complete Message interface definition
+  - Fields: id, chatId, senderId, text, timestamp, status, readBy
+  - Optimistic UI fields: tempId, clientTimestamp
+  - AI extraction fields (added in PR #6-9)
+
+- **Section 5: Performance Targets** → Message delivery requirements
+  - **<200ms delivery on good network (RUBRIC CRITICAL)**
+  - Typing indicator lag: <100ms
+  - Query limits: 50 messages initial load
+
+**From `docs/architecture/MessagingInfrastructure.md`:**
+- **Section 1: Real-Time Sync Patterns** → Complete section
+  - Firestore listener setup and lifecycle
+  - Performance optimization techniques
+
+- **Section 2: Optimistic UI** → Complete implementation pattern
+  - tempId generation and tracking
+  - Matching optimistic to real messages
+  - Error handling for failed sends
+
+- **Section 3.2: Message Ordering** → Timestamp handling
+  - Server timestamp vs client timestamp
+  - Ordering strategies
+
+**Key Patterns for PR #3:**
+- Message flow: See TechnicalArchitecture.md Section 2 "Message Flow"
+- Optimistic UI: See MessagingInfrastructure.md Section 2
+- Performance monitoring: <200ms requirement (RUBRIC)
+
+### 📊 Visual Architecture Diagrams
+
+**Complete Message Send Flow:**
+
+See full diagrams: [docs/architecture/diagrams/MessageFlow.md](../architecture/diagrams/MessageFlow.md)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User
+    participant UI
+    participant messageStore
+    participant Firestore
+    participant Recipient
+
+    User->>UI: Types "Hello" + Taps Send
+    UI->>messageStore: sendMessage(chatId, "Hello")
+
+    Note over messageStore: Generate tempId
+    messageStore->>UI: Optimistic Update
+    UI->>UI: Display immediately<br/>(status: sending)
+
+    messageStore->>Firestore: firestore().add({...})
+
+    alt Network Available
+        Firestore-->>messageStore: Document added
+        messageStore->>UI: Update status: sent ✓
+        Firestore->>Recipient: Real-time push
+    else Network Unavailable
+        Firestore-->>messageStore: Queue operation
+        UI->>UI: Show "Queued"
+        Note over Firestore: Auto-sync on reconnect
+    end
+```
+
+**Message Data Model:**
+
+See full diagrams: [docs/architecture/diagrams/DataModels.md](../architecture/diagrams/DataModels.md)
+
+```mermaid
+graph TB
+    subgraph "Subcollection: /chats/{chatId}/messages"
+        A[Document: messageId]
+    end
+
+    subgraph "Message Fields PR #3"
+        B[id: string]
+        C[chatId: string]
+        D[senderId: string]
+        E[text: string]
+        F[timestamp: Timestamp]
+        G[status: enum]
+        H[readBy: string array]
+        I[tempId: string]
+        J[clientTimestamp: Date]
+    end
+
+    subgraph "Future AI Fields PR #6-9"
+        K[aiExtraction: object]
+    end
+
+    A --> B
+    A --> C
+    A --> D
+    A --> E
+    A --> F
+    A --> G
+    A --> H
+    A --> I
+    A --> J
+
+    G --> G1["sending | sent |<br/>delivered | read"]
+
+    style A fill:#4285f4,color:#fff
+    style G fill:#34a853,color:#fff
+    style I fill:#f9ab00,color:#000
+    style K fill:#f9ab00,color:#000
+```
+
+**Optimistic UI Pattern:**
+
+See full diagrams: [docs/architecture/diagrams/MessageFlow.md](../architecture/diagrams/MessageFlow.md)
+
+```mermaid
+graph TB
+    Start([User Sends Message]) --> Generate[Generate Temp ID]
+    Generate --> AddUI[Add to UI Immediately]
+    AddUI --> SetStatus["Set status: 'sending'"]
+
+    SetStatus --> WriteFirestore[Write to Firestore]
+
+    WriteFirestore --> Check{Network?}
+
+    Check -->|Online| Confirm[Firestore Confirms]
+    Check -->|Offline| Queue[Queue Operation]
+
+    Confirm --> Listener[Listener Receives]
+    Queue --> Wait[Wait for Connection]
+    Wait --> Sync[Auto-sync]
+    Sync --> Listener
+
+    Listener --> Replace[Replace Temp Message]
+    Replace --> UpdateStatus["Update status: 'sent'"]
+    UpdateStatus --> End([Complete])
+
+    style AddUI fill:#34a853,color:#fff
+    style Queue fill:#f9ab00,color:#000
+```
+
+**Performance Target: <200ms Delivery:**
+
+```mermaid
+graph TB
+    subgraph "Performance Measurement"
+        A[User taps Send]
+        B[Message in UI: <50ms]
+        C[Firestore write: <200ms]
+        D[Recipient receives: <200ms]
+        E[Total: <250ms]
+    end
+
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+
+    style B fill:#34a853,color:#fff
+    style C fill:#34a853,color:#fff
+    style E fill:#34a853,color:#fff
+```
+
+---
+
 ## 🏗️ What Already Exists (Code Reuse)
 
 **From PR #1:**

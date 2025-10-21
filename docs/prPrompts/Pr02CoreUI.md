@@ -32,6 +32,152 @@ Read these files in order for context:
 
 ---
 
+## 🏗️ Architecture Context
+
+### Relevant Architecture References
+
+For this PR, review these specific sections in the architecture documents:
+
+**From `docs/architecture/TechnicalArchitecture.md`:**
+- **Section 2: System Architecture** → High-Level Architecture diagram
+  - Focus: Mobile App Layer (Tab navigation, Chat list screen, Profile screen)
+  - Focus: Zustand Stores (authStore from PR #1, new chatStore)
+  - Focus: Firebase Backend (Firestore `/chats` collection, real-time listeners)
+
+- **Section 3: Data Models** → Chats Collection: `/chats/{chatId}`
+  - Complete Chat interface definition
+  - Fields: type, participants, participantDetails, lastMessage, unreadCount
+  - Group chat fields (groupName, groupPhoto) - partially implemented, completed in PR #5
+
+- **Section 5: Performance Targets** → Query optimization
+  - Firestore indexes required for chat queries
+  - Query limits: 100 chats for initial load
+
+**From `docs/architecture/MessagingInfrastructure.md`:**
+- **Section 1: Real-Time Sync Patterns** → Firestore listeners
+  - onSnapshot pattern for real-time updates
+  - Lifecycle cleanup to prevent memory leaks
+
+**Key Data Model for PR #2:**
+- Chat collection structure (see TechnicalArchitecture.md Section 3)
+- Real-time listener pattern: `where('participants', 'array-contains', userId)`
+- Performance: FlashList for 60 FPS scrolling
+
+### 📊 Visual Architecture Diagrams
+
+**System Architecture for PR #2:**
+
+See full diagrams: [docs/architecture/diagrams/SystemArchitecture.md](../architecture/diagrams/SystemArchitecture.md)
+
+```mermaid
+graph TB
+    subgraph "PR #2: Navigation & Chat List"
+        A[Expo Router Setup]
+        B[Tab Navigation]
+        C[Chat List Screen]
+        D[chatStore Zustand]
+    end
+
+    subgraph "Components"
+        E[ChatListItem]
+        F[FlashList]
+    end
+
+    subgraph "Firebase"
+        G[Firestore /chats]
+        H[Real-time Listener]
+    end
+
+    A --> B
+    B --> C
+    C --> D
+    D --> H
+    H --> G
+    G --> D
+    D --> F
+    F --> E
+
+    style D fill:#4285f4,color:#fff
+    style F fill:#34a853,color:#fff
+    style H fill:#f9ab00,color:#000
+```
+
+**Chat Data Model:**
+
+See full diagrams: [docs/architecture/diagrams/DataModels.md](../architecture/diagrams/DataModels.md)
+
+```mermaid
+graph TB
+    subgraph "Collection: /chats"
+        A[Document: chatId]
+    end
+
+    subgraph "Chat Fields PR #2"
+        B[id: string]
+        C[type: one-on-one or group]
+        D[participants: string array]
+        E[participantData: object]
+        F[lastMessage: object]
+        G[unreadCount: object]
+        H[createdAt: Timestamp]
+        I[updatedAt: Timestamp]
+    end
+
+    subgraph "Future Group Fields PR #5"
+        J[groupName: string]
+        K[groupPhoto: string]
+        L[createdBy: string]
+    end
+
+    A --> B
+    A --> C
+    A --> D
+    A --> E
+    A --> F
+    A --> G
+    A --> H
+    A --> I
+
+    E --> E1["{userId: {name, photoURL}}"]
+    F --> F1["{text, senderId, timestamp}"]
+    G --> G1["{userId: count}"]
+
+    style A fill:#4285f4,color:#fff
+    style E fill:#34a853,color:#fff
+    style J fill:#f9ab00,color:#000
+```
+
+**Performance: FlashList Architecture:**
+
+```mermaid
+graph LR
+    subgraph "Chat List Optimization"
+        A[Firestore Query<br/>limit 100]
+        B[chatStore State]
+        C[FlashList Component]
+        D[Render visible items only]
+    end
+
+    A --> B
+    B --> C
+    C --> D
+
+    subgraph "Performance Targets"
+        E[60 FPS scrolling]
+        F[Smooth animations]
+        G[Low memory usage]
+    end
+
+    D --> E
+    D --> F
+    D --> G
+
+    style C fill:#34a853,color:#fff
+    style E fill:#34a853,color:#fff
+```
+
+---
+
 ## 🏗️ What Already Exists (Code Reuse)
 
 **From PR #1:**

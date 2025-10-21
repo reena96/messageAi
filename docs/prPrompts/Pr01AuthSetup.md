@@ -23,6 +23,102 @@ Read these files in order for context:
 
 ---
 
+## 🏗️ Architecture Context
+
+### Relevant Architecture References
+
+For this PR, review these specific sections in the architecture documents:
+
+**From `docs/architecture/TechnicalArchitecture.md`:**
+- **Section 2: System Architecture** → High-Level Architecture diagram
+  - Focus: Mobile App Layer (Screens, Components, Zustand Stores)
+  - Focus: Firebase Backend (Firestore `/users/{uid}`, Firebase Auth)
+
+- **Section 3: Data Models** → Users Collection: `/users/{userId}`
+  - Complete User interface definition
+  - Field descriptions and usage
+  - Firestore indexes
+
+- **Section 4: Security & Firestore Rules** → Users Collection rules
+  - Authentication requirements
+  - Read/write permissions
+
+**Key Data Model for PR #1:**
+- User collection structure (see TechnicalArchitecture.md Section 3)
+- Fields created in this PR: id, email, displayName, online, lastSeen, createdAt, updatedAt
+- Fields for future PRs: fcmToken (PR #5), photoURL (optional)
+
+### 📊 Visual Architecture Diagrams
+
+**System Architecture for PR #1:**
+
+See full diagrams: [docs/architecture/diagrams/SystemArchitecture.md](../architecture/diagrams/SystemArchitecture.md)
+
+```mermaid
+graph TB
+    subgraph "PR #1: Auth Layer"
+        A[Login Screen]
+        B[Signup Screen]
+        C[authStore Zustand]
+    end
+
+    subgraph "Firebase Services"
+        D[Firebase Auth]
+        E[Firestore /users collection]
+    end
+
+    A -->|signIn| C
+    B -->|signUp| C
+    C -->|authenticate| D
+    D -->|success| E
+    E -->|create user doc| C
+    C -->|update state| A
+
+    style C fill:#4285f4,color:#fff
+    style D fill:#f9ab00,color:#000
+    style E fill:#34a853,color:#fff
+```
+
+**User Data Model:**
+
+See full diagrams: [docs/architecture/diagrams/DataModels.md](../architecture/diagrams/DataModels.md)
+
+```mermaid
+graph TB
+    subgraph "Collection: /users"
+        A[Document: userId]
+    end
+
+    subgraph "User Document Fields PR #1"
+        B[id: string - Auth UID]
+        C[email: string]
+        D[displayName: string]
+        E[online: boolean]
+        F[lastSeen: Timestamp]
+        G[createdAt: Timestamp]
+        H[updatedAt: Timestamp]
+    end
+
+    subgraph "Future PRs"
+        I[fcmToken: string - PR #5]
+        J[photoURL: string - Optional]
+    end
+
+    A --> B
+    A --> C
+    A --> D
+    A --> E
+    A --> F
+    A --> G
+    A --> H
+
+    style A fill:#4285f4,color:#fff
+    style B fill:#34a853,color:#fff
+    style I fill:#f9ab00,color:#000
+```
+
+---
+
 ## 🏗️ What Already Exists (Code Reuse)
 
 **Before this PR:**

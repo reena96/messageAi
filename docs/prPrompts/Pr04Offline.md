@@ -31,6 +31,187 @@ Read these files in order for context:
 
 ---
 
+## 🏗️ Architecture Context
+
+### Relevant Architecture References
+
+For this PR, review these specific sections in the architecture documents:
+
+**From `docs/architecture/TechnicalArchitecture.md`:**
+- **Section 2: System Architecture** → Complete system diagram
+  - Focus: Local Storage Layer (react-native-firebase SQLite cache)
+  - Note: Offline persistence enabled in PR #1 config
+  - **Section 2: Offline Scenario** → Complete offline message flow
+
+- **Section 5: Performance Targets** → Offline sync requirements
+  - **Offline sync after reconnection: <1 second (RUBRIC CRITICAL)**
+
+**From `docs/architecture/MessagingInfrastructure.md`:**
+- **Section 3: Offline-First Architecture** → Complete 8-page deep dive (READ ENTIRE SECTION)
+  - Subsection 3.1: Automatic offline support (Firebase SDK features)
+  - Subsection 3.2: What Firebase handles automatically
+  - Subsection 3.3: What we must implement (retry queue, error detection)
+  - Subsection 3.4: Network error detection patterns
+
+- **Section 5: Poor Network Handling** → Complete section
+  - Detecting poor network vs complete offline
+  - Retry strategies and exponential backoff
+  - User feedback patterns
+
+- **Section 7: Common Pitfalls** → Offline-specific issues
+  - Subsection 7.5: Offline mode edge cases
+  - Subsection 7.6: Listener cleanup during offline
+
+**7 Offline Scenarios (Rubric Requirement):**
+All scenarios detailed in MessagingInfrastructure.md Section 3:
+1. Send while offline → queue + retry button
+2. View cached messages → served from cache
+3. Auto-retry on reconnect → all queued messages send
+4. Poor network (intermittent) → retry on failure
+5. Connection restored mid-send → operation completes
+6. Multiple failed messages → all tracked and retried
+7. Sync after offline → <1s sync time (RUBRIC)
+
+**Key Implementation Notes:**
+- Firebase SDK handles most offline support (enabled in PR #1)
+- PR #4 adds: network detection, retry queue, better error messages, auto-retry hook
+
+### 📊 Visual Architecture Diagrams
+
+**Offline-First Architecture:**
+
+See full diagrams: [docs/architecture/diagrams/OfflineFirst.md](../architecture/diagrams/OfflineFirst.md)
+
+```mermaid
+graph TB
+    Start([User Action]) --> Check{Network<br/>Available?}
+
+    Check -->|Yes| Online[Write to Firestore]
+    Check -->|No| Offline[Queue in Local Storage]
+
+    Online --> Listener[Firestore Listener]
+    Offline --> LocalUI[Update Local UI<br/>status: sending]
+
+    Listener --> UpdateUI[Update UI<br/>status: sent]
+
+    LocalUI --> WaitNetwork{Wait for<br/>Connection}
+    WaitNetwork -->|Connected| Sync[Sync Queued Writes]
+    Sync --> Listener
+
+    WaitNetwork -->|Still Offline| LocalUI
+
+    style Check fill:#f9ab00,color:#000
+    style Offline fill:#ea4335,color:#fff
+    style Online fill:#34a853,color:#fff
+```
+
+**Offline Scenario 1: Send While Offline:**
+
+See full diagrams: [docs/architecture/diagrams/OfflineFirst.md](../architecture/diagrams/OfflineFirst.md)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User
+    participant UI
+    participant LocalCache
+    participant NetworkMonitor
+    participant Firestore
+
+    User->>UI: Send message
+    UI->>NetworkMonitor: Check connection
+
+    NetworkMonitor-->>UI: Offline
+
+    UI->>LocalCache: Store in queue
+    LocalCache-->>UI: Queued successfully
+
+    UI->>UI: Display message<br/>Status: "Queued"
+
+    Note over User,Firestore: Time passes...
+
+    NetworkMonitor->>NetworkMonitor: Detects connection
+
+    NetworkMonitor->>LocalCache: Trigger sync
+    LocalCache->>Firestore: Upload queued writes
+
+    Firestore-->>LocalCache: Confirm writes
+    LocalCache->>UI: Update status
+    UI->>UI: Show "Sent ✓"
+```
+
+**Network State Management:**
+
+See full diagrams: [docs/architecture/diagrams/OfflineFirst.md](../architecture/diagrams/OfflineFirst.md)
+
+```mermaid
+graph TB
+    subgraph "Network Monitoring"
+        A[NetInfo Listener]
+        B[Connection Type]
+        C[Internet Reachable]
+    end
+
+    A --> B
+    A --> C
+
+    B --> WiFi[WiFi]
+    B --> Cellular[Cellular]
+    B --> None[No Connection]
+
+    C --> Yes[Internet Available]
+    C --> No[No Internet]
+
+    subgraph "App State"
+        D[Online Mode]
+        E[Offline Mode]
+        F[Poor Connection]
+    end
+
+    WiFi --> Yes
+    Cellular --> Yes
+    Yes --> D
+
+    None --> E
+    No --> E
+
+    Cellular --> Unknown[Unknown]
+    Unknown --> F
+
+    style D fill:#34a853,color:#fff
+    style E fill:#ea4335,color:#fff
+    style F fill:#f9ab00,color:#000
+```
+
+**Sync Performance Target: <1 Second:**
+
+```mermaid
+graph TB
+    subgraph "Offline Actions"
+        A[Send 10 messages offline]
+    end
+
+    subgraph "Connection Restored"
+        D[Network detected]
+        E[Start sync]
+    end
+
+    subgraph "Performance Target RUBRIC"
+        F[Sync complete in <1 second]
+    end
+
+    A --> D
+    D --> E
+    E --> F
+
+    F --> G[All 10 messages sent ✓]
+
+    style E fill:#4285f4,color:#fff
+    style F fill:#34a853,color:#fff
+```
+
+---
+
 ## 🏗️ What Already Exists (Code Reuse)
 
 **From PR #1:**
