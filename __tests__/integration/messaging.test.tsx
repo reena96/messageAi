@@ -29,7 +29,7 @@ describe('Messaging Integration', () => {
   });
 
   it('should send and display message', async () => {
-    const { addDoc, updateDoc, serverTimestamp, collection, query, orderBy, limit, onSnapshot } =
+    const { addDoc, updateDoc, serverTimestamp, collection, query, orderBy, limit, onSnapshot, doc } =
       require('firebase/firestore');
 
     addDoc.mockResolvedValue({ id: 'new-msg' });
@@ -40,10 +40,21 @@ describe('Messaging Integration', () => {
     query.mockReturnValue({});
     orderBy.mockReturnValue({});
     limit.mockReturnValue({});
+    doc.mockReturnValue({});
 
-    // Mock onSnapshot to simulate real-time update
-    onSnapshot.mockImplementation((q: any, callback: any) => {
-      setTimeout(() => {
+    // Mock onSnapshot with sequential calls: typing indicator first, then messages
+    onSnapshot
+      .mockImplementationOnce((ref: any, callback: any) => {
+        // First call: typing indicator (document snapshot)
+        callback({
+          data: () => ({ typing: {} }),
+          exists: () => true,
+          id: 'chat1',
+        });
+        return jest.fn(); // unsubscribe
+      })
+      .mockImplementationOnce((ref: any, callback: any) => {
+        // Second call: messages collection (query snapshot)
         callback({
           docs: [
             {
@@ -59,9 +70,26 @@ describe('Messaging Integration', () => {
             },
           ],
         });
-      }, 100);
-      return jest.fn(); // unsubscribe
-    });
+        // Send update after user sends message
+        setTimeout(() => {
+          callback({
+            docs: [
+              {
+                id: 'new-msg',
+                data: () => ({
+                  chatId: 'chat1',
+                  text: 'Test message',
+                  senderId: 'user1',
+                  timestamp: { toDate: () => new Date() },
+                  status: 'sent',
+                  readBy: ['user1'],
+                }),
+              },
+            ],
+          });
+        }, 100);
+        return jest.fn(); // unsubscribe
+      });
 
     const { getByTestId, findByText } = render(<ChatScreen />);
 
@@ -82,34 +110,50 @@ describe('Messaging Integration', () => {
   });
 
   it('should receive messages in real-time', async () => {
-    const { collection, query, orderBy, limit, onSnapshot } = require('firebase/firestore');
+    const { collection, query, orderBy, limit, onSnapshot, doc } = require('firebase/firestore');
 
     collection.mockReturnValue({});
     query.mockReturnValue({});
     orderBy.mockReturnValue({});
     limit.mockReturnValue({});
+    doc.mockReturnValue({});
 
-    // Mock onSnapshot to simulate incoming message after 200ms
-    onSnapshot.mockImplementation((q: any, callback: any) => {
-      setTimeout(() => {
+    // Mock onSnapshot with sequential calls: typing indicator first, then messages
+    onSnapshot
+      .mockImplementationOnce((ref: any, callback: any) => {
+        // First call: typing indicator (document snapshot)
         callback({
-          docs: [
-            {
-              id: 'incoming-msg',
-              data: () => ({
-                chatId: 'chat1',
-                text: 'Incoming message',
-                senderId: 'user2',
-                timestamp: { toDate: () => new Date() },
-                status: 'sent',
-                readBy: ['user2'],
-              }),
-            },
-          ],
+          data: () => ({ typing: {} }),
+          exists: () => true,
+          id: 'chat1',
         });
-      }, 200);
-      return jest.fn(); // unsubscribe
-    });
+        return jest.fn(); // unsubscribe
+      })
+      .mockImplementationOnce((ref: any, callback: any) => {
+        // Second call: messages collection (query snapshot)
+        callback({
+          docs: [],
+        });
+        // Simulate incoming message after delay
+        setTimeout(() => {
+          callback({
+            docs: [
+              {
+                id: 'incoming-msg',
+                data: () => ({
+                  chatId: 'chat1',
+                  text: 'Incoming message',
+                  senderId: 'user2',
+                  timestamp: { toDate: () => new Date() },
+                  status: 'sent',
+                  readBy: ['user2'],
+                }),
+              },
+            ],
+          });
+        }, 200);
+        return jest.fn(); // unsubscribe
+      });
 
     const { findByText } = render(<ChatScreen />);
 
@@ -119,35 +163,47 @@ describe('Messaging Integration', () => {
   });
 
   it('should mark messages as read when viewing', async () => {
-    const { collection, query, orderBy, limit, onSnapshot, updateDoc, arrayUnion } =
+    const { collection, query, orderBy, limit, onSnapshot, updateDoc, arrayUnion, doc } =
       require('firebase/firestore');
 
     collection.mockReturnValue({});
     query.mockReturnValue({});
     orderBy.mockReturnValue({});
     limit.mockReturnValue({});
+    doc.mockReturnValue({});
     updateDoc.mockResolvedValue(undefined);
     arrayUnion.mockImplementation((val: any) => ['ARRAY_UNION', val]);
 
-    // Mock onSnapshot with unread message
-    onSnapshot.mockImplementation((q: any, callback: any) => {
-      callback({
-        docs: [
-          {
-            id: 'msg1',
-            data: () => ({
-              chatId: 'chat1',
-              text: 'Unread message',
-              senderId: 'user2',
-              timestamp: { toDate: () => new Date() },
-              status: 'sent',
-              readBy: ['user2'],
-            }),
-          },
-        ],
+    // Mock onSnapshot with sequential calls: typing indicator first, then messages
+    onSnapshot
+      .mockImplementationOnce((ref: any, callback: any) => {
+        // First call: typing indicator (document snapshot)
+        callback({
+          data: () => ({ typing: {} }),
+          exists: () => true,
+          id: 'chat1',
+        });
+        return jest.fn(); // unsubscribe
+      })
+      .mockImplementationOnce((ref: any, callback: any) => {
+        // Second call: messages collection (query snapshot)
+        callback({
+          docs: [
+            {
+              id: 'msg1',
+              data: () => ({
+                chatId: 'chat1',
+                text: 'Unread message',
+                senderId: 'user2',
+                timestamp: { toDate: () => new Date() },
+                status: 'sent',
+                readBy: ['user2'],
+              }),
+            },
+          ],
+        });
+        return jest.fn(); // unsubscribe
       });
-      return jest.fn(); // unsubscribe
-    });
 
     render(<ChatScreen />);
 

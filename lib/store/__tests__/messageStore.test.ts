@@ -43,27 +43,27 @@ describe('messageStore', () => {
 
       const { result } = renderHook(() => useMessageStore());
 
-      // Start sending message and wait for optimistic message
+      // Send message
+      let sendPromise: Promise<void>;
+      act(() => {
+        sendPromise = result.current.sendMessage('chat1', 'user1', 'Hello!');
+      });
+
+      // Check optimistic message exists (state should be updated synchronously)
+      const chatMessages = result.current.messages['chat1'] || [];
+      expect(chatMessages.length).toBeGreaterThan(0);
+
+      const optimisticMsg = chatMessages.find(m => m.tempId);
+      expect(optimisticMsg).toBeDefined();
+      if (optimisticMsg) {
+        expect(optimisticMsg.text).toBe('Hello!');
+        expect(optimisticMsg.status).toBe('sending');
+        expect(optimisticMsg.tempId).toBeDefined();
+      }
+
+      // Wait for completion
       await act(async () => {
-        const sendPromise = result.current.sendMessage('chat1', 'user1', 'Hello!');
-
-        // Wait a tiny bit for the optimistic message to be added
-        await new Promise(resolve => setTimeout(resolve, 10));
-
-        // Check optimistic message exists
-        const chatMessages = result.current.messages['chat1'] || [];
-        expect(chatMessages.length).toBeGreaterThan(0);
-
-        const optimisticMsg = chatMessages.find(m => m.tempId);
-        expect(optimisticMsg).toBeDefined();
-        if (optimisticMsg) {
-          expect(optimisticMsg.text).toBe('Hello!');
-          expect(optimisticMsg.status).toBe('sending');
-          expect(optimisticMsg.tempId).toBeDefined();
-        }
-
-        // Wait for completion
-        await sendPromise;
+        await sendPromise!;
       });
     });
 
