@@ -1,21 +1,126 @@
 # Security Guide
 
-## ⚠️ IMPORTANT: API Keys Exposed in Git History
+## ⚠️ CRITICAL: API Keys Exposed in Git History
 
-**Your Firebase API keys were committed to git history and are publicly visible!**
+**Your Firebase API keys were committed to git history and are publicly visible on GitHub!**
 
-### Immediate Action Required
+### 🚨 Immediate Action Required: Rotate Firebase Keys
 
-1. **Rotate Your Firebase Keys** (Recommended)
-   - Go to [Firebase Console](https://console.firebase.google.com/project/messageai-fc793/settings/general)
-   - Navigate to Project Settings > General
-   - Delete the current Web App and create a new one
-   - Update your `.env` file with the new credentials
+Follow these steps **right now** to secure your Firebase project:
 
-2. **Enable Firebase Security Rules**
-   - Ensure your Firestore security rules are properly configured
-   - Never rely on API key secrecy for security
-   - Use Firebase Authentication + Security Rules for access control
+#### Step 1: Open Firebase Console
+
+1. Go to [Firebase Console - messageai-fc793](https://console.firebase.google.com/project/messageai-fc793/settings/general)
+2. Sign in with your Google account
+3. Click on the **Settings** (gear icon) → **Project settings**
+
+#### Step 2: Delete the Exposed Web App
+
+1. Scroll down to **"Your apps"** section
+2. Find your Web App (should show the exposed App ID: `1:888955196853:web:b16a48a69c2a3edcc7f5fc`)
+3. Click the **trash icon** next to the web app
+4. Confirm deletion when prompted
+
+#### Step 3: Create a New Web App
+
+1. In the same **"Your apps"** section, click **"Add app"**
+2. Select the **Web** platform (</> icon)
+3. Enter app nickname: `MessageAI Web` (or any name you prefer)
+4. **Check** "Also set up Firebase Hosting" (optional)
+5. Click **"Register app"**
+
+#### Step 4: Copy Your New Configuration
+
+You'll see a config object like this:
+
+```javascript
+const firebaseConfig = {
+  apiKey: "NEW_API_KEY_HERE",
+  authDomain: "messageai-fc793.firebaseapp.com",
+  projectId: "messageai-fc793",
+  storageBucket: "messageai-fc793.firebasestorage.app",
+  messagingSenderId: "888955196853",
+  appId: "NEW_APP_ID_HERE",
+  measurementId: "NEW_MEASUREMENT_ID_HERE"
+};
+```
+
+#### Step 5: Update Your .env File
+
+1. Open your `.env` file in the project root
+2. Replace the old values with the new ones:
+
+```bash
+EXPO_PUBLIC_FIREBASE_API_KEY=NEW_API_KEY_HERE
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=messageai-fc793.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=messageai-fc793
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=messageai-fc793.firebasestorage.app
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=888955196853
+EXPO_PUBLIC_FIREBASE_APP_ID=NEW_APP_ID_HERE
+EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID=NEW_MEASUREMENT_ID_HERE
+```
+
+3. Save the file
+
+#### Step 6: Restart Your Development Server
+
+```bash
+# Stop your current Expo server (Ctrl+C)
+# Clear Metro bundler cache and restart
+npx expo start --clear
+```
+
+#### Step 7: Verify It Works
+
+1. Open Expo Go on your phone and reload the app
+2. Try logging in or signing up
+3. Verify authentication works with the new keys
+
+#### Step 8: Update google-services.json (Android)
+
+If you're building for Android:
+
+1. In Firebase Console, scroll down to **"Your apps"**
+2. Find your **Android app** (if exists)
+3. Click the settings icon → **Download google-services.json**
+4. Replace `android/app/google-services.json` with the new file
+
+#### Step 9: Update GoogleService-Info.plist (iOS)
+
+If you're building for iOS:
+
+1. In Firebase Console, scroll down to **"Your apps"**
+2. Find your **iOS app** (if exists)
+3. Click the settings icon → **Download GoogleService-Info.plist**
+4. Replace `ios/MessageAI/GoogleService-Info.plist` with the new file
+
+### ✅ Verify Security Rules Are Enabled
+
+**IMPORTANT:** Firebase security doesn't come from hiding API keys - it comes from proper security rules.
+
+1. Go to [Firestore Rules](https://console.firebase.google.com/project/messageai-fc793/firestore/rules)
+2. Ensure you have authentication-based rules, not this:
+   ```javascript
+   // ❌ BAD - Anyone can read/write
+   allow read, write: if true;
+   ```
+
+3. Use authentication-based rules like this:
+   ```javascript
+   // ✅ GOOD - Only authenticated users
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{userId} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+       match /chats/{chatId} {
+         allow read, write: if request.auth != null &&
+           request.auth.uid in resource.data.participants;
+       }
+     }
+   }
+   ```
 
 ### How We Fixed It
 
