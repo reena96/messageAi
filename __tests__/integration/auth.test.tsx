@@ -9,11 +9,22 @@ jest.mock('@/lib/firebase/config');
 jest.mock('expo-router');
 
 describe('Authentication Integration', () => {
+  // Suppress console.error for expected errors during tests
+  const originalConsoleError = console.error;
+
   beforeEach(() => {
     useAuthStore.setState({ user: null, loading: false, error: null });
 
     // Reset all mocks
     jest.clearAllMocks();
+
+    // Mock console.error to suppress expected error logs
+    console.error = jest.fn();
+  });
+
+  afterEach(() => {
+    // Restore console.error
+    console.error = originalConsoleError;
   });
 
   describe('Login Flow', () => {
@@ -48,9 +59,8 @@ describe('Authentication Integration', () => {
     it('should display error for invalid credentials', async () => {
       const { signInWithEmailAndPassword } = require('firebase/auth');
 
-      signInWithEmailAndPassword.mockRejectedValue(
-        new Error('Invalid email or password')
-      );
+      const error = new Error('Invalid email or password');
+      signInWithEmailAndPassword.mockRejectedValue(error);
 
       const { getByTestId, findByText } = render(<LoginScreen />);
 
@@ -64,6 +74,9 @@ describe('Authentication Integration', () => {
 
       const errorMessage = await findByText(/Invalid email or password/i);
       expect(errorMessage).toBeTruthy();
+
+      // Verify console.error was called with the expected error
+      expect(console.error).toHaveBeenCalledWith('Login error:', error);
     });
 
     it('should show loading state during login', async () => {
@@ -128,9 +141,8 @@ describe('Authentication Integration', () => {
     it('should handle email already in use error', async () => {
       const { createUserWithEmailAndPassword } = require('firebase/auth');
 
-      createUserWithEmailAndPassword.mockRejectedValue(
-        new Error('Email already in use')
-      );
+      const error = new Error('Email already in use');
+      createUserWithEmailAndPassword.mockRejectedValue(error);
 
       const { getByTestId, findByText } = render(<SignupScreen />);
 
@@ -146,6 +158,9 @@ describe('Authentication Integration', () => {
 
       const errorMessage = await findByText(/Email already in use/i);
       expect(errorMessage).toBeTruthy();
+
+      // Verify console.error was called with the expected error
+      expect(console.error).toHaveBeenCalledWith('Signup error:', error);
     });
   });
 
