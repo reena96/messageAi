@@ -41,6 +41,7 @@ jest.mock('firebase/firestore', () => ({
   onSnapshot: jest.fn(),
   getDocs: jest.fn(),
   addDoc: jest.fn(),
+  arrayUnion: jest.fn(),
 }));
 
 jest.mock('firebase/storage', () => ({
