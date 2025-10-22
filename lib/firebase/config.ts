@@ -1,27 +1,31 @@
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Firebase configuration
+// Firebase configuration from environment variables
 const firebaseConfig = {
-  apiKey: "AIzaSyACDLyeqGuTT61TxjBQBQn2N_fvpjF63OI",
-  authDomain: "messageai-fc793.firebaseapp.com",
-  projectId: "messageai-fc793",
-  storageBucket: "messageai-fc793.firebasestorage.app",
-  messagingSenderId: "888955196853",
-  appId: "1:888955196853:web:b16a48a69c2a3edcc7f5fc",
-  measurementId: "G-X3ZYYT3PSX"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
+
+// Validate that all required environment variables are present
+if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+  throw new Error(
+    'Missing Firebase configuration. Please check your .env file and ensure all EXPO_PUBLIC_FIREBASE_* variables are set.'
+  );
+}
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Auth with React Native persistence
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage)
-});
+// Initialize Auth (Firebase JS SDK handles persistence automatically)
+const auth = getAuth(app);
 
 // Initialize Firestore with offline persistence
 const firestore = getFirestore(app);

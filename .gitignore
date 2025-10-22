@@ -31,10 +31,26 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+.env.development
+.env.production
+
+# Firebase config files (if in root)
+google-services.json
+GoogleService-Info.plist
+firebase-config.json
 
 # typescript
 *.tsbuildinfo
+
+# build logs
+*_build.log
+*_build*.log
+android_build.log
+ios_build*.log
+eas_build.log
+codegen_manual.log
 
 # generated native folders
 /ios
