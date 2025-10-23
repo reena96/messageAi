@@ -64,14 +64,14 @@ export default function LoginScreen() {
         )}
       </TouchableOpacity>
 
-      <DevTestLogin />
-
       <TouchableOpacity
         onPress={() => router.push('/(auth)/signup')}
         testID="signup-link"
       >
         <Text style={styles.link}>Don't have an account? Sign up</Text>
       </TouchableOpacity>
+
+      <DevTestLogin />
     </View>
   );
 }
