@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native
 import { router } from 'expo-router';
 import { useChatStore } from '@/lib/store/chatStore';
 import { useAuthStore } from '@/lib/store/authStore';
-import ConnectionStatus from '@/components/common/ConnectionStatus';
 import { Chat } from '@/types/chat';
 import { debugLog } from '@/lib/utils/debug';
 
@@ -124,7 +123,6 @@ export default function ChatsScreen() {
   if (loading && chats.length === 0) {
     return (
       <View style={styles.container}>
-        <ConnectionStatus />
         <View style={styles.centered}>
           <Text style={styles.text}>Loading chats...</Text>
         </View>
@@ -134,7 +132,6 @@ export default function ChatsScreen() {
 
   return (
     <View style={styles.container}>
-      <ConnectionStatus />
       <FlatList
         data={chats}
         renderItem={renderChatItem}
