@@ -2,6 +2,7 @@ import { View, TextInput, TouchableOpacity, Text, StyleSheet, ActivityIndicator 
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { useAuthStore } from '@/lib/store/authStore';
+import DevTestLogin from '@/components/dev/DevTestLogin';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -62,6 +63,8 @@ export default function LoginScreen() {
           <Text style={styles.buttonText}>Sign In</Text>
         )}
       </TouchableOpacity>
+
+      <DevTestLogin />
 
       <TouchableOpacity
         onPress={() => router.push('/(auth)/signup')}
