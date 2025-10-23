@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
 import { Chat } from '@/types/chat';
+import { debugLog, errorLog } from '@/lib/utils/debug';
 
 interface ChatState {
   chats: Chat[];
@@ -46,6 +47,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Subscribe to chats
   subscribeToChats: (userId: string) => {
     try {
+      debugLog('💬 [ChatStore] subscribeToChats called for userId:', userId);
       set({ loading: true, error: null });
 
       const chatsRef = collection(firestore, 'chats');
@@ -56,11 +58,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
         limit(100)
       );
 
+      debugLog('💬 [ChatStore] Firestore query constructed:', {
+        collection: 'chats',
+        where: `participants array-contains ${userId}`,
+        orderBy: 'updatedAt desc',
+        limit: 100,
+      });
+      debugLog('💬 [ChatStore] Setting up Firestore listener');
+
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
+          debugLog('💬 [ChatStore] Snapshot received:', {
+            size: snapshot.size,
+            empty: snapshot.empty,
+          });
+
           const chats: Chat[] = snapshot.docs.map((doc) => {
             const data = doc.data();
+            debugLog('💬 [ChatStore] Processing chat document:', {
+              id: doc.id,
+              type: data.type,
+              participants: data.participants,
+              hasLastMessage: !!data.lastMessage,
+            });
+
             return {
               id: doc.id,
               type: data.type,
@@ -82,15 +104,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
             };
           });
 
+          debugLog('💬 [ChatStore] Setting chats in store:', {
+            count: chats.length,
+            chatIds: chats.map(c => c.id),
+          });
           set({ chats, loading: false });
         },
         (error) => {
+          errorLog('🔴 [ChatStore] Snapshot error:', error.message, error.code);
           set({ loading: false, error: error.message });
         }
       );
 
+      debugLog('💬 [ChatStore] Listener setup complete, returning unsubscribe function');
       return unsubscribe;
     } catch (error: any) {
+      errorLog('🔴 [ChatStore] subscribeToChats error:', error.message);
       set({ loading: false, error: error.message });
       return () => {};
     }

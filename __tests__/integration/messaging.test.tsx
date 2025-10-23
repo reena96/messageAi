@@ -1,14 +1,31 @@
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { NavigationContainer } from '@react-navigation/native';
 import ChatScreen from '@/app/chat/[id]';
 import { useMessageStore } from '@/lib/store/messageStore';
 import { useAuthStore } from '@/lib/store/authStore';
 
 jest.mock('firebase/firestore');
 jest.mock('@/lib/firebase/config');
+jest.mock('@expo/vector-icons', () => ({
+  Ionicons: 'Ionicons',
+}));
 jest.mock('expo-router', () => ({
   ...jest.requireActual('expo-router'),
   useLocalSearchParams: () => ({ id: 'chat1' }),
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+  }),
+  Stack: {
+    Screen: ({ children, options }: any) => children || null,
+  },
 }));
+
+// Test wrapper with navigation context
+const TestWrapper = ({ children }: { children: React.ReactNode }) => (
+  <NavigationContainer>{children}</NavigationContainer>
+);
 
 describe('Messaging Integration', () => {
   beforeEach(() => {
@@ -91,7 +108,7 @@ describe('Messaging Integration', () => {
         return jest.fn(); // unsubscribe
       });
 
-    const { getByTestId, findByText } = render(<ChatScreen />);
+    const { getByTestId, findByText } = render(<ChatScreen />, { wrapper: TestWrapper });
 
     const input = getByTestId('message-input');
     const sendButton = getByTestId('send-button');
@@ -155,7 +172,7 @@ describe('Messaging Integration', () => {
         return jest.fn(); // unsubscribe
       });
 
-    const { findByText } = render(<ChatScreen />);
+    const { findByText } = render(<ChatScreen />, { wrapper: TestWrapper });
 
     // Should receive and display message
     const incomingMessage = await findByText('Incoming message', {}, { timeout: 3000 });
@@ -205,7 +222,7 @@ describe('Messaging Integration', () => {
         return jest.fn(); // unsubscribe
       });
 
-    render(<ChatScreen />);
+    render(<ChatScreen />, { wrapper: TestWrapper });
 
     await waitFor(() => {
       expect(updateDoc).toHaveBeenCalledWith(

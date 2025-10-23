@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, firestore } from '../firebase/config';
+import { debugLog, errorLog } from '@/lib/utils/debug';
 
 interface AuthState {
   user: User | null;
@@ -60,13 +61,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   // Sign in action
   signIn: async (email, password) => {
     try {
+      debugLog('🟢 [AuthStore] Starting sign in for:', email);
       set({ loading: true, error: null });
 
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      debugLog('🟢 [AuthStore] Sign in successful:', {
+        uid: userCredential.user.uid,
+        email: userCredential.user.email,
+      });
 
       // Update online status
       const currentUser = auth.currentUser;
       if (currentUser) {
+        debugLog('🟢 [AuthStore] Updating user online status in Firestore');
         await updateDoc(doc(firestore, 'users', currentUser.uid), {
           online: true,
           lastSeen: serverTimestamp(),
@@ -74,7 +81,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       set({ loading: false });
+      debugLog('🟢 [AuthStore] Sign in complete');
     } catch (error: any) {
+      errorLog('🔴 [AuthStore] Sign in error:', error.message);
       set({ loading: false, error: error.message });
       throw error;
     }
@@ -103,6 +112,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   // Setters
-  setUser: (user) => set({ user }),
+  setUser: (user) => {
+    debugLog('🟢 [AuthStore] setUser called:', {
+      isAuthenticated: !!user,
+      uid: user?.uid,
+      email: user?.email,
+      displayName: user?.displayName,
+    });
+    set({ user });
+  },
   clearError: () => set({ error: null }),
 }));
