@@ -11,7 +11,19 @@ import {
 import { doc, setDoc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { auth, firestore } from '../firebase/config';
 import { debugLog, errorLog } from '@/lib/utils/debug';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
+// Conditionally import GoogleSignin - only available in dev builds, not Expo Go
+let GoogleSignin: any = null;
+let isGoogleSignInAvailable = false;
+try {
+  GoogleSignin = require('@react-native-google-signin/google-signin').GoogleSignin;
+  isGoogleSignInAvailable = true;
+  debugLog('🟢 [AuthStore] Google Sign-In available (running in dev build)');
+} catch (e) {
+  debugLog('🟡 [AuthStore] Google Sign-In not available (running in Expo Go)');
+}
+
+export { isGoogleSignInAvailable };
 
 interface AuthState {
   user: User | null;
@@ -93,8 +105,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  // Google Sign-In action
+  // Google Sign-In action (only available in dev builds)
   signInWithGoogle: async () => {
+    if (!isGoogleSignInAvailable || !GoogleSignin) {
+      const error = 'Google Sign-In is only available in development builds. Please use email/password authentication or build a development version.';
+      errorLog('🔴 [AuthStore] Google Sign-In not available');
+      set({ error, loading: false });
+      throw new Error(error);
+    }
+
     try {
       debugLog('🟢 [AuthStore] Starting Google sign in');
       set({ loading: true, error: null });

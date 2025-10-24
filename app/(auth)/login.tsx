@@ -1,10 +1,9 @@
 import { View, TextInput, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
-import { useAuthStore } from '@/lib/store/authStore';
+import { useAuthStore, isGoogleSignInAvailable } from '@/lib/store/authStore';
 import DevTestLogin from '@/components/dev/DevTestLogin';
 import { Ionicons } from '@expo/vector-icons';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -13,11 +12,15 @@ export default function LoginScreen() {
 
   // Configure Google Sign-In
   useEffect(() => {
-    GoogleSignin.configure({
-      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-      iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, // Fallback to web client ID
-      offlineAccess: true,
-    });
+    // Only configure GoogleSignin if it's available (dev build)
+    if (isGoogleSignInAvailable) {
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+      GoogleSignin.configure({
+        webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+        iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+        offlineAccess: true,
+      });
+    }
   }, []);
 
   const handleLogin = async () => {
@@ -93,17 +96,20 @@ export default function LoginScreen() {
         <Text style={styles.link}>Don't have an account? Sign up</Text>
       </TouchableOpacity>
 
-      <View style={styles.divider}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>or</Text>
-        <View style={styles.dividerLine} />
-      </View>
+      {/* Google Sign-In - Only show in dev builds */}
+      {isGoogleSignInAvailable && (
+        <>
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.dividerLine} />
+          </View>
 
-      <TouchableOpacity
-        style={[styles.googleButton, loading && styles.buttonDisabled]}
-        onPress={handleGoogleSignIn}
-        disabled={loading}
-        testID="google-signin-button"
+          <TouchableOpacity
+            style={[styles.googleButton, loading && styles.buttonDisabled]}
+            onPress={handleGoogleSignIn}
+            disabled={loading}
+            testID="google-signin-button"
       >
         {loading ? (
           <ActivityIndicator color="#000" />
@@ -114,6 +120,15 @@ export default function LoginScreen() {
           </>
         )}
       </TouchableOpacity>
+        </>
+      )}
+
+      {/* Expo Go Note */}
+      {!isGoogleSignInAvailable && __DEV__ && (
+        <Text style={styles.expoGoNote}>
+          💡 Google Sign-In requires a dev build. Use email/password in Expo Go.
+        </Text>
+      )}
 
       <DevTestLogin />
     </View>
@@ -199,5 +214,12 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: '600',
+  },
+  expoGoNote: {
+    marginTop: 16,
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
 });
