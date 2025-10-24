@@ -132,26 +132,6 @@ android {
     }
 }
 
-// Patch autolinking.cpp to remove unsupported component descriptors
-afterEvaluate {
-    tasks.matching { it.name.startsWith("buildCMake") }.configureEach { buildTask ->
-        buildTask.doFirst {
-            def autolinkingFile = file("${buildDir}/generated/autolinking/src/main/jni/autolinking.cpp")
-            if (autolinkingFile.exists()) {
-                def content = autolinkingFile.text
-                content = content.replaceAll(/(?m)^.*UnimplementedNativeViewComponentDescriptor.*$/, '')
-                content = content.replaceAll(/(?m)^.*PullToRefreshViewComponentDescriptor.*$/, '')
-                content = content.replaceAll(/(?m)^.*DebuggingOverlayComponentDescriptor.*$/, '')
-                content = content.replaceAll(/(?m)^.*AndroidSwipeRefreshLayoutComponentDescriptor.*$/, '')
-                content = content.replaceAll(/(?m)^.*AndroidDrawerLayoutComponentDescriptor.*$/, '')
-                content = content.replaceAll(/(?m)^.*ActivityIndicatorViewComponentDescriptor.*$/, '')
-                autolinkingFile.text = content
-                println "Patched autolinking.cpp to remove unsupported component descriptors"
-            }
-        }
-    }
-}
-
 // Apply static values from `gradle.properties` to the `android.packagingOptions`
 // Accepts values in comma delimited lists, example:
 // android.packagingOptions.pickFirsts=/LICENSE,**/picasa.ini

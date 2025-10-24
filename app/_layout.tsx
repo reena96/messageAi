@@ -4,9 +4,13 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
 import { debugLog } from '@/lib/utils/debug';
+import { useNetworkStatus } from '@/lib/hooks/useNetworkStatus';
 
 export default function RootLayout() {
   const setUser = useAuthStore((state) => state.setUser);
+
+  // Enable auto-retry for failed messages
+  useNetworkStatus();
 
   useEffect(() => {
     debugLog('🔵 [RootLayout] Setting up auth state listener');
