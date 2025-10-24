@@ -14,11 +14,20 @@
       "backgroundColor": "#ffffff"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "@react-native-google-signin/google-signin"
     ],
     "ios": {
       "bundleIdentifier": "com.mary.messageai",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["com.googleusercontent.apps.888955196853-pkdtb81uapo8dtpbqbjkp0isq406n7v3"]
+          }
+        ]
+      }
     },
     "android": {
       "package": "com.mary.messageai",

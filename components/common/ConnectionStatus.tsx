@@ -1,28 +1,36 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
+import { debugLog, debugWarn } from '@/lib/utils/debug';
 
 export default function ConnectionStatus() {
   const [isConnected, setIsConnected] = useState(true);
 
   useEffect(() => {
-    // Subscribe to network state changes
+    debugLog('🌐 [ConnectionStatus] Setting up listener');
+
+    // Listen to network state changes
     const unsubscribe = NetInfo.addEventListener((state) => {
-      setIsConnected(state.isConnected ?? true);
+      const connected = state.isConnected ?? true;
+      debugLog('🌐 [ConnectionStatus] Network changed:', connected, '- Time:', new Date().toLocaleTimeString());
+      debugWarn(connected ? '✅ ONLINE' : '❌ OFFLINE');
+      setIsConnected(connected);
     });
 
-    // Cleanup on unmount
-    return () => {
-      unsubscribe();
-    };
+    // Get initial state
+    NetInfo.fetch().then((state) => {
+      const connected = state.isConnected ?? true;
+      debugLog('🌐 [ConnectionStatus] Initial state:', connected);
+      setIsConnected(connected);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  // Hide banner if connected
   if (isConnected) {
     return null;
   }
 
-  // Show red banner if offline
   return (
     <View style={styles.banner}>
       <Text style={styles.text}>No internet connection</Text>

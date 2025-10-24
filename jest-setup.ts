@@ -38,9 +38,20 @@ jest.mock('firebase/firestore', () => ({
   where: jest.fn(),
   orderBy: jest.fn(),
   limit: jest.fn(),
-  onSnapshot: jest.fn(),
+  onSnapshot: jest.fn((ref, callback) => {
+    // Call callback with mock document snapshot
+    const mockSnapshot = {
+      data: jest.fn(() => ({})),
+      exists: () => true,
+      id: 'mock-id',
+      metadata: {},
+    };
+    callback(mockSnapshot);
+    return jest.fn(); // unsubscribe function
+  }),
   getDocs: jest.fn(),
   addDoc: jest.fn(),
+  arrayUnion: jest.fn(),
 }));
 
 jest.mock('firebase/storage', () => ({
