@@ -28,6 +28,9 @@ export default function ChatScreen() {
   // Use proper Zustand selectors for reliable re-renders
   const messages = useMessageStore((state) => state.messages);
   const subscribeToMessages = useMessageStore((state) => state.subscribeToMessages);
+  const loadOlderMessages = useMessageStore((state) => state.loadOlderMessages);
+  const hasMoreMessages = useMessageStore((state) => state.hasMoreMessages);
+  const loadingOlder = useMessageStore((state) => state.loadingOlder);
   const sendMessage = useMessageStore((state) => state.sendMessage);
   const markAsRead = useMessageStore((state) => state.markAsRead);
   const clearUnreadCount = useMessageStore((state) => state.clearUnreadCount);
@@ -40,30 +43,28 @@ export default function ChatScreen() {
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserOnline, setOtherUserOnline] = useState(false);
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true); // Track if user is at bottom of chat
+  const [newMessageCount, setNewMessageCount] = useState(0); // Count of new messages when scrolled up
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const markedAsReadRef = useRef<Set<string>>(new Set()); // Track which messages we've already marked as read
-  const hasScrolledToUnreadRef = useRef(false); // Track if we've done initial scroll
-  const initialUnreadIndexRef = useRef<number>(-1); // Save initial unread index
-  const initialUnreadCountRef = useRef<number>(0); // Save initial unread count
-  const previousMessageCountRef = useRef(0); // Track previous message count for auto-scroll
+  const previousMessageCountRef = useRef(0); // Track previous message count for new message detection
+  const hasInitiallyScrolledRef = useRef(false); // Track if we've done initial scroll to bottom
 
   const chatMessages = messages[chatId] || [];
 
-  // Get current chat details FIRST (need this for unread count)
+  // Get current chat details
   const currentChat = chats.find((chat) => chat.id === chatId);
 
-  // Get chat-level unread count BEFORE we clear it
-  const chatLevelUnreadCount = currentChat?.unreadCount?.[user?.uid || ''] || 0;
-
-  // Find the first unread message for the current user (current state)
-  const currentUnreadIndex = chatMessages.findIndex(
+  // Find the first unread message for the separator
+  const firstUnreadIndex = chatMessages.findIndex(
     (msg) => msg.senderId !== user?.uid && !msg.readBy.includes(user?.uid || '')
   );
 
-  // Use saved initial values for display
-  const firstUnreadIndex = initialUnreadIndexRef.current;
-  const unreadCount = initialUnreadCountRef.current;
+  // Count unread messages
+  const unreadCount = chatMessages.filter(
+    (msg) => msg.senderId !== user?.uid && !msg.readBy.includes(user?.uid || '')
+  ).length;
 
   // Get chat display name
   const getChatDisplayName = () => {
@@ -86,6 +87,31 @@ export default function ChatScreen() {
   const otherUserId = currentChat?.type === 'one-on-one'
     ? currentChat.participants.find((id) => id !== user?.uid)
     : null;
+
+  // Handle scroll position tracking
+  const handleScroll = (event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    const distanceFromTop = contentOffset.y;
+
+    // Consider "at bottom" if within 100px
+    const atBottom = distanceFromBottom < 100;
+
+    if (atBottom && !isAtBottom) {
+      // Reached bottom - clear new message count
+      setIsAtBottom(true);
+      setNewMessageCount(0);
+    } else if (!atBottom && isAtBottom) {
+      // Scrolled away from bottom
+      setIsAtBottom(false);
+    }
+
+    // Load older messages when near top
+    if (distanceFromTop < 500 && hasMoreMessages[chatId] && !loadingOlder[chatId]) {
+      console.log('📜 [ChatScreen] Near top - loading older messages');
+      loadOlderMessages(chatId);
+    }
+  };
 
   // Subscribe to other user's online status (one-on-one chats only)
   useEffect(() => {
@@ -164,48 +190,79 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMessages, user?.uid, chatId]); // Zustand function removed from deps
 
-  // ALWAYS scroll to bottom on initial load
-  useEffect(() => {
-    if (!user || chatMessages.length === 0 || hasScrolledToUnreadRef.current) return;
-
-    console.log('📜 [ChatScreen] Initial load - scrolling to bottom in 150ms');
-
-    const scrollTimeout = setTimeout(() => {
-      console.log('📜 [ChatScreen] Executing scroll to bottom');
-      flatListRef.current?.scrollToEnd({ animated: false });
-      hasScrolledToUnreadRef.current = true;
-      previousMessageCountRef.current = chatMessages.length;
-      console.log('✅ [ChatScreen] Scrolled to bottom');
-    }, 150); // Increased delay for more reliable scroll
-
-    return () => clearTimeout(scrollTimeout);
-  }, [chatMessages.length, user]);
-
-  // Clear marked-as-read tracking when switching chats
+  // Clear state when switching chats
   useEffect(() => {
     markedAsReadRef.current.clear();
-    hasScrolledToUnreadRef.current = false; // Reset scroll tracking
-    initialUnreadIndexRef.current = -1; // Reset unread index
-    initialUnreadCountRef.current = 0; // Reset unread count
-    previousMessageCountRef.current = 0; // Reset message count
+    previousMessageCountRef.current = 0;
+    hasInitiallyScrolledRef.current = false;
+    setIsAtBottom(true);
+    setNewMessageCount(0);
   }, [chatId]);
 
-  // ALWAYS auto-scroll to bottom when new messages arrive
+  // WhatsApp-style instant scroll to bottom on content render
+  const handleContentSizeChange = (width: number, height: number) => {
+    if (!hasInitiallyScrolledRef.current && chatMessages.length > 0) {
+      console.log('📜 [ChatScreen] Content size changed, height:', height);
+
+      // WhatsApp pattern: Scroll immediately to a very large offset
+      // This ensures we reach the absolute bottom regardless of dynamic heights
+      flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
+
+      // Also try scrollToEnd as backup (some RN versions work better with one or the other)
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
+      }, 50);
+
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
+        hasInitiallyScrolledRef.current = true;
+        previousMessageCountRef.current = chatMessages.length;
+        console.log('✅ [ChatScreen] Multiple scroll attempts complete');
+      }, 150);
+    }
+  };
+
+  // Smart auto-scroll: only scroll if at bottom OR own message (AFTER initial scroll)
   useEffect(() => {
-    // Skip on initial load
-    if (!hasScrolledToUnreadRef.current) {
+    // Only run this after initial scroll is complete
+    if (!hasInitiallyScrolledRef.current) {
       return;
     }
 
-    // Check if message count increased (new message arrived)
+    // Check if new message arrived
     if (chatMessages.length > previousMessageCountRef.current) {
-      console.log('📜 [ChatScreen] New message detected - auto-scrolling to bottom');
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      const newMessage = chatMessages[chatMessages.length - 1];
+      const isOwnMessage = newMessage?.senderId === user?.uid;
+
+      console.log('📜 [ChatScreen] New message detected:', {
+        isAtBottom,
+        isOwnMessage,
+        messageFrom: isOwnMessage ? 'self' : 'other',
+      });
+
+      if (isAtBottom || isOwnMessage) {
+        // Auto-scroll if at bottom OR it's our own message
+        console.log('📜 [ChatScreen] Auto-scrolling to bottom for new message');
+
+        // Multiple scroll attempts to ensure we reach bottom (same as initial load)
+        flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
+
+        setTimeout(() => {
+          flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
+        }, 50);
+
+        setTimeout(() => {
+          flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
+        }, 150);
+      } else {
+        // Increment new message count for indicator
+        console.log('📜 [ChatScreen] User scrolled up - showing new message indicator');
+        setNewMessageCount((prev) => prev + 1);
+      }
+
       previousMessageCountRef.current = chatMessages.length;
     }
-  }, [chatMessages.length]);
+  }, [chatMessages.length, isAtBottom, user?.uid]);
 
   // Handle typing indicator
   const handleTextChange = (text: string) => {
@@ -247,10 +304,16 @@ export default function ChatScreen() {
     try {
       await sendMessage(chatId, user.uid, messageText);
 
-      // ALWAYS scroll to bottom after sending message
+      // ALWAYS scroll to bottom after sending message (multiple attempts)
       console.log('📜 [ChatScreen] Scrolling to bottom after sending message');
+      flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
+
       setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
+        flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
+      }, 50);
+
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
       }, 150);
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -342,21 +405,9 @@ export default function ChatScreen() {
           }}
           keyExtractor={(item) => item.id || item.tempId || ''}
           contentContainerStyle={styles.messageList}
-          onScrollToIndexFailed={(info) => {
-            // Handle out of range - retry after a delay
-            const wait = new Promise((resolve) => setTimeout(resolve, 100));
-            wait.then(() => {
-              if (info.index < chatMessages.length) {
-                flatListRef.current?.scrollToIndex({
-                  index: info.index,
-                  animated: false,
-                  viewPosition: 0.5, // Center position for consistency
-                });
-              } else {
-                flatListRef.current?.scrollToEnd({ animated: false });
-              }
-            });
-          }}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={handleContentSizeChange}
           initialNumToRender={50}
           maxToRenderPerBatch={20}
           windowSize={10}
@@ -364,6 +415,13 @@ export default function ChatScreen() {
           maintainVisibleContentPosition={{
             minIndexForVisible: 0,
           }}
+          ListHeaderComponent={
+            loadingOlder[chatId] ? (
+              <View style={styles.loadingOlderContainer}>
+                <Text style={styles.loadingOlderText}>Loading older messages...</Text>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No messages yet</Text>
@@ -371,6 +429,33 @@ export default function ChatScreen() {
             </View>
           }
         />
+
+        {/* New messages indicator - show when scrolled up and new messages arrive */}
+        {!isAtBottom && newMessageCount > 0 && (
+          <TouchableOpacity
+            style={styles.newMessageIndicator}
+            onPress={() => {
+              // Multiple scroll attempts for reliable bottom positioning
+              flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
+
+              setTimeout(() => {
+                flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
+              }, 50);
+
+              setTimeout(() => {
+                flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
+                setNewMessageCount(0);
+                setIsAtBottom(true);
+              }, 150);
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.newMessageText}>
+              {newMessageCount} new message{newMessageCount !== 1 ? 's' : ''}
+            </Text>
+            <Ionicons name="chevron-down" size={16} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
 
         <TypingIndicator
           chatId={chatId}
@@ -476,6 +561,38 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  newMessageIndicator: {
+    position: 'absolute',
+    bottom: 80,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#25D366', // WhatsApp green
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+    gap: 6,
+  },
+  newMessageText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  loadingOlderContainer: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  loadingOlderText: {
+    fontSize: 13,
+    color: '#8E8E93',
+    fontStyle: 'italic',
   },
   unreadSeparator: {
     flexDirection: 'row',

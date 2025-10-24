@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Message } from '@/types/message';
+import { useMessageStore } from '@/lib/store/messageStore';
 
 interface MessageBubbleProps {
   message: Message;
@@ -17,6 +18,17 @@ export default function MessageBubble({
   chatParticipants = [],
   currentUserId,
 }: MessageBubbleProps) {
+  const retryMessage = useMessageStore((state) => state.retryMessage);
+
+  const handleRetry = async () => {
+    console.log('🔄 [MessageBubble] Retry button tapped for message:', message.id || message.tempId);
+    try {
+      await retryMessage(message.chatId, message.id || message.tempId!);
+      console.log('✅ [MessageBubble] Retry successful');
+    } catch (error) {
+      console.error('❌ [MessageBubble] Retry failed:', error);
+    }
+  };
 
   // Compute actual message status based on readBy array
   const getActualStatus = (): Message['status'] => {
@@ -105,6 +117,18 @@ export default function MessageBubble({
             </View>
           )}
         </View>
+
+        {/* Retry button for failed messages */}
+        {actualStatus === 'failed' && isOwnMessage && (
+          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+            <Text style={styles.retryText}>Tap to retry</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Error message for failed messages */}
+        {actualStatus === 'failed' && isOwnMessage && message.error && (
+          <Text style={styles.errorText}>{message.error}</Text>
+        )}
       </View>
 
       {isOwnMessage && showAvatar && (
@@ -187,5 +211,24 @@ const styles = StyleSheet.create({
   },
   statusIcon: {
     marginLeft: 2,
+  },
+  retryButton: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#FF3B30',
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  retryText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  errorText: {
+    marginTop: 4,
+    fontSize: 11,
+    color: '#FF3B30',
+    fontStyle: 'italic',
   },
 });

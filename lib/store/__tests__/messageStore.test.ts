@@ -257,12 +257,13 @@ describe('messageStore', () => {
       expect(onSnapshot).toHaveBeenCalled();
     });
 
-    it('should order messages by timestamp ascending', () => {
-      const { collection, query, orderBy, onSnapshot } = require('firebase/firestore');
+    it('should order messages by timestamp descending with limit', () => {
+      const { collection, query, orderBy, limit, onSnapshot } = require('firebase/firestore');
 
       collection.mockReturnValue({});
       query.mockReturnValue({});
       orderBy.mockReturnValue({});
+      limit.mockReturnValue({});
       onSnapshot.mockReturnValue(jest.fn());
 
       const { result } = renderHook(() => useMessageStore());
@@ -271,7 +272,8 @@ describe('messageStore', () => {
         result.current.subscribeToMessages('chat1');
       });
 
-      expect(orderBy).toHaveBeenCalledWith('timestamp', 'asc');
+      expect(orderBy).toHaveBeenCalledWith('timestamp', 'desc');
+      expect(limit).toHaveBeenCalledWith(50);
     });
   });
 

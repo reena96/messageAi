@@ -12,6 +12,10 @@ import {
   arrayUnion,
   increment,
   getDoc,
+  limit,
+  startAfter,
+  getDocs,
+  QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import NetInfo from '@react-native-community/netinfo';
 import { firestore } from '../firebase/config';
@@ -24,9 +28,13 @@ interface MessageState {
   error: string | null;
   sendingMessages: Set<string>; // Track tempIds of messages being sent
   retryQueue: Set<string>; // Track tempIds of messages to retry
+  hasMoreMessages: { [chatId: string]: boolean }; // Track if more messages available
+  loadingOlder: { [chatId: string]: boolean }; // Track if loading older messages
+  oldestMessageDoc: { [chatId: string]: QueryDocumentSnapshot | null }; // Track oldest message for pagination
 
   // Actions
   subscribeToMessages: (chatId: string) => Unsubscribe;
+  loadOlderMessages: (chatId: string) => Promise<void>;
   sendMessage: (chatId: string, senderId: string, text: string) => Promise<void>;
   retryMessage: (chatId: string, messageId: string) => Promise<void>;
   markAsRead: (chatId: string, messageId: string, userId: string) => Promise<void>;
@@ -43,14 +51,18 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   error: null,
   sendingMessages: new Set(),
   retryQueue: new Set(),
+  hasMoreMessages: {},
+  loadingOlder: {},
+  oldestMessageDoc: {},
 
-  // Subscribe to real-time messages for a chat
+  // Subscribe to real-time messages for a chat (last 50 messages)
   subscribeToMessages: (chatId) => {
     try {
       set({ loading: true, error: null });
 
       const messagesRef = collection(firestore, 'chats', chatId, 'messages');
-      const q = query(messagesRef, orderBy('timestamp', 'asc'));
+      // Query last 50 messages in descending order (newest first)
+      const q = query(messagesRef, orderBy('timestamp', 'desc'), limit(50));
 
       const unsubscribe = onSnapshot(
         q,
@@ -68,7 +80,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               imageUrl: data.imageUrl,
               type: data.type || 'text',
             };
-          });
+          }).reverse(); // Reverse to get chronological order (oldest first)
 
           set((state) => {
             // Get current messages including optimistic ones
@@ -91,10 +103,22 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             // Merge: Firestore messages + optimistic messages that should be kept
             const mergedMessages = [...firestoreMessages, ...optimisticMessages];
 
+            // Track oldest message document for pagination
+            const oldestDoc = snapshot.docs[snapshot.docs.length - 1] || null;
+            const hasMore = snapshot.docs.length === 50; // If we got 50, there might be more
+
             return {
               messages: {
                 ...state.messages,
                 [chatId]: mergedMessages,
+              },
+              oldestMessageDoc: {
+                ...state.oldestMessageDoc,
+                [chatId]: oldestDoc,
+              },
+              hasMoreMessages: {
+                ...state.hasMoreMessages,
+                [chatId]: hasMore,
               },
               loading: false,
             };
@@ -111,6 +135,88 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       console.error('Error setting up message subscription:', error);
       set({ loading: false, error: error.message });
       return () => {};
+    }
+  },
+
+  // Load older messages (pagination)
+  loadOlderMessages: async (chatId) => {
+    const state = get();
+
+    // Don't load if already loading or no more messages
+    if (state.loadingOlder[chatId] || !state.hasMoreMessages[chatId]) {
+      console.log('📜 [MessageStore] Skip loading older - already loading or no more messages');
+      return;
+    }
+
+    const oldestDoc = state.oldestMessageDoc[chatId];
+    if (!oldestDoc) {
+      console.log('📜 [MessageStore] No oldest doc found');
+      return;
+    }
+
+    try {
+      console.log('📜 [MessageStore] Loading older messages for chat:', chatId);
+
+      set((state) => ({
+        loadingOlder: { ...state.loadingOlder, [chatId]: true },
+      }));
+
+      const messagesRef = collection(firestore, 'chats', chatId, 'messages');
+      const q = query(
+        messagesRef,
+        orderBy('timestamp', 'desc'),
+        startAfter(oldestDoc),
+        limit(50)
+      );
+
+      const snapshot = await getDocs(q);
+
+      const olderMessages: Message[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          chatId: data.chatId,
+          senderId: data.senderId,
+          text: data.text,
+          timestamp: data.timestamp?.toDate() || new Date(),
+          status: data.status || 'sent',
+          readBy: data.readBy || [],
+          imageUrl: data.imageUrl,
+          type: data.type || 'text',
+        };
+      }).reverse(); // Reverse to chronological order
+
+      console.log('📜 [MessageStore] Loaded', olderMessages.length, 'older messages');
+
+      set((state) => {
+        const currentMessages = state.messages[chatId] || [];
+        const newOldestDoc = snapshot.docs[snapshot.docs.length - 1] || null;
+        const hasMore = snapshot.docs.length === 50;
+
+        return {
+          messages: {
+            ...state.messages,
+            [chatId]: [...olderMessages, ...currentMessages], // Prepend older messages
+          },
+          oldestMessageDoc: {
+            ...state.oldestMessageDoc,
+            [chatId]: newOldestDoc,
+          },
+          hasMoreMessages: {
+            ...state.hasMoreMessages,
+            [chatId]: hasMore,
+          },
+          loadingOlder: {
+            ...state.loadingOlder,
+            [chatId]: false,
+          },
+        };
+      });
+    } catch (error: any) {
+      console.error('Error loading older messages:', error);
+      set((state) => ({
+        loadingOlder: { ...state.loadingOlder, [chatId]: false },
+      }));
     }
   },
 

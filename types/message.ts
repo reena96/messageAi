@@ -10,6 +10,9 @@ export interface Message {
   // Optimistic UI support
   tempId?: string; // Temporary ID before Firestore confirms
 
+  // Error handling
+  error?: string; // Error message for failed messages
+
   // Optional features
   imageUrl?: string;
   type?: 'text' | 'image';
