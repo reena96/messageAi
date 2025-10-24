@@ -53,9 +53,24 @@ ios_build*.log
 eas_build.log
 codegen_manual.log
 
-# generated native folders
-/ios
-/android
+# iOS - ignore build artifacts but keep source
+/ios/build/
+/ios/Pods/
+/ios/*.xcworkspace/xcuserdata/
+/ios/*.xcodeproj/xcuserdata/
+/ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+/ios/DerivedData/
+
+# Android - ignore build artifacts but keep source
+/android/app/build/
+/android/app/.cxx/
+/android/.gradle/
+/android/build/
+/android/*/build/
+*.apk
+*.ap_
+*.aab
+local.properties
 
 # AI-generated agent files
 AGENTS.md
