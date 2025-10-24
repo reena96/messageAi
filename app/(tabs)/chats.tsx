@@ -7,8 +7,11 @@ import { Chat } from '@/types/chat';
 import { debugLog } from '@/lib/utils/debug';
 
 export default function ChatsScreen() {
-  const { chats, loading, subscribeToChats } = useChatStore();
-  const { user } = useAuthStore();
+  // Use proper Zustand selectors for reliable re-renders
+  const chats = useChatStore((state) => state.chats);
+  const loading = useChatStore((state) => state.loading);
+  const subscribeToChats = useChatStore((state) => state.subscribeToChats);
+  const user = useAuthStore((state) => state.user);
 
   debugLog('💬 [ChatsScreen] Render:', {
     hasUser: !!user,

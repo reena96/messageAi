@@ -257,12 +257,13 @@ describe('messageStore', () => {
       expect(onSnapshot).toHaveBeenCalled();
     });
 
-    it('should order messages by timestamp ascending', () => {
-      const { collection, query, orderBy, onSnapshot } = require('firebase/firestore');
+    it('should order messages by timestamp descending with limit', () => {
+      const { collection, query, orderBy, limit, onSnapshot } = require('firebase/firestore');
 
       collection.mockReturnValue({});
       query.mockReturnValue({});
       orderBy.mockReturnValue({});
+      limit.mockReturnValue({});
       onSnapshot.mockReturnValue(jest.fn());
 
       const { result } = renderHook(() => useMessageStore());
@@ -271,7 +272,153 @@ describe('messageStore', () => {
         result.current.subscribeToMessages('chat1');
       });
 
-      expect(orderBy).toHaveBeenCalledWith('timestamp', 'asc');
+      expect(orderBy).toHaveBeenCalledWith('timestamp', 'desc');
+      expect(limit).toHaveBeenCalledWith(50);
+    });
+  });
+
+  describe('retryMessage', () => {
+    it('should update message status from failed to sending', async () => {
+      const { addDoc, updateDoc, getDoc, collection, doc, serverTimestamp } = require('firebase/firestore');
+
+      // Setup: Create a failed message first
+      const failedMessage = {
+        id: 'temp-123',
+        tempId: 'temp-123',
+        chatId: 'chat1',
+        senderId: 'user1',
+        text: 'Failed message',
+        timestamp: new Date(),
+        status: 'failed' as const,
+        readBy: ['user1'],
+        error: 'No internet connection',
+        type: 'text' as const,
+      };
+
+      const { result } = renderHook(() => useMessageStore());
+
+      // Add failed message to state
+      act(() => {
+        useMessageStore.setState({
+          messages: {
+            chat1: [failedMessage],
+          },
+          retryQueue: new Set(['temp-123']),
+        });
+      });
+
+      // Verify failed message exists
+      expect(result.current.messages.chat1[0].status).toBe('failed');
+      expect(result.current.messages.chat1[0].error).toBe('No internet connection');
+
+      // Setup mocks for retry
+      collection.mockReturnValue({});
+      doc.mockReturnValue({ id: 'chat1' });
+      addDoc.mockResolvedValue({ id: 'real-msg-123' });
+      updateDoc.mockResolvedValue(undefined);
+      serverTimestamp.mockReturnValue('TIMESTAMP');
+      getDoc.mockResolvedValue({
+        data: () => ({
+          participants: ['user1', 'user2'],
+          activeViewers: {},
+        }),
+        exists: () => true,
+        id: 'chat1',
+      });
+
+      // Mock NetInfo to return online
+      const NetInfo = require('@react-native-community/netinfo');
+      NetInfo.fetch.mockResolvedValue({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+
+      // Retry the message
+      await act(async () => {
+        await result.current.retryMessage('chat1', 'temp-123');
+      });
+
+      // Verify message was sent to Firestore
+      expect(addDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          chatId: 'chat1',
+          senderId: 'user1',
+          text: 'Failed message',
+          status: 'sent',
+        })
+      );
+
+      // Verify message is removed from sendingMessages after success
+      expect(result.current.sendingMessages.has('temp-123')).toBe(false);
+    });
+
+    it('should update UI state immediately when retry is initiated', async () => {
+      const failedMessage = {
+        id: 'temp-456',
+        tempId: 'temp-456',
+        chatId: 'chat1',
+        senderId: 'user1',
+        text: 'Test message',
+        timestamp: new Date(),
+        status: 'failed' as const,
+        readBy: ['user1'],
+        error: 'Network error',
+        type: 'text' as const,
+      };
+
+      const { result } = renderHook(() => useMessageStore());
+
+      // Add failed message
+      act(() => {
+        useMessageStore.setState({
+          messages: {
+            chat1: [failedMessage],
+          },
+          retryQueue: new Set(['temp-456']),
+        });
+      });
+
+      // Setup mocks
+      const { addDoc, updateDoc, getDoc, collection, doc, serverTimestamp } = require('firebase/firestore');
+      collection.mockReturnValue({});
+      doc.mockReturnValue({ id: 'chat1' });
+      addDoc.mockResolvedValue({ id: 'real-msg-456' });
+      updateDoc.mockResolvedValue(undefined);
+      serverTimestamp.mockReturnValue('TIMESTAMP');
+      getDoc.mockResolvedValue({
+        data: () => ({
+          participants: ['user1', 'user2'],
+          activeViewers: {},
+        }),
+        exists: () => true,
+        id: 'chat1',
+      });
+
+      const NetInfo = require('@react-native-community/netinfo');
+      NetInfo.fetch.mockResolvedValue({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+
+      // Start retry (don't await yet)
+      let retryPromise: Promise<void>;
+      act(() => {
+        retryPromise = result.current.retryMessage('chat1', 'temp-456');
+      });
+
+      // CRITICAL TEST: Check if status was updated to 'sending' immediately
+      // This is what the UI needs to show the loading state
+      const updatedMessage = result.current.messages.chat1[0];
+      expect(updatedMessage.status).toBe('sending');
+      expect(updatedMessage.error).toBeUndefined();
+
+      // Now wait for completion
+      await act(async () => {
+        await retryPromise!;
+      });
     });
   });
 });

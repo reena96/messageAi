@@ -64,6 +64,7 @@ jest.mock('firebase/firestore', () => ({
   where: jest.fn(),
   orderBy: jest.fn(),
   limit: jest.fn(),
+  startAfter: jest.fn(),
   onSnapshot: jest.fn((ref, callback) => {
     // Call callback with mock document snapshot
     const mockSnapshot = {
@@ -75,7 +76,10 @@ jest.mock('firebase/firestore', () => ({
     callback(mockSnapshot);
     return jest.fn(); // unsubscribe function
   }),
-  getDocs: jest.fn(),
+  getDocs: jest.fn(() => Promise.resolve({
+    docs: [],
+    empty: true,
+  })),
   addDoc: jest.fn(),
   arrayUnion: jest.fn(),
   increment: jest.fn((val) => val),
@@ -186,3 +190,17 @@ jest.mock('@expo/vector-icons', () => {
       React.createElement('Text', { ...props, testID: `icon-${name}` }, name),
   };
 });
+
+// Mock @react-native-community/netinfo
+jest.mock('@react-native-community/netinfo', () => ({
+  fetch: jest.fn(() => Promise.resolve({
+    isConnected: true,
+    isInternetReachable: true,
+    type: 'wifi',
+    details: null,
+  })),
+  addEventListener: jest.fn((callback) => {
+    // Return unsubscribe function
+    return () => {};
+  }),
+}));
