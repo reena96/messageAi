@@ -24,8 +24,17 @@ export default function ChatScreen() {
   const { id: chatId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const { messages, subscribeToMessages, sendMessage, markAsRead, clearUnreadCount, setActivelyViewing, setTyping } = useMessageStore();
-  const { chats } = useChatStore();
+
+  // Use proper Zustand selectors for reliable re-renders
+  const messages = useMessageStore((state) => state.messages);
+  const subscribeToMessages = useMessageStore((state) => state.subscribeToMessages);
+  const sendMessage = useMessageStore((state) => state.sendMessage);
+  const markAsRead = useMessageStore((state) => state.markAsRead);
+  const clearUnreadCount = useMessageStore((state) => state.clearUnreadCount);
+  const setActivelyViewing = useMessageStore((state) => state.setActivelyViewing);
+  const setTyping = useMessageStore((state) => state.setTyping);
+
+  const chats = useChatStore((state) => state.chats);
 
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
