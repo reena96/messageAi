@@ -13,6 +13,7 @@ import {
   increment,
   getDoc,
 } from 'firebase/firestore';
+import NetInfo from '@react-native-community/netinfo';
 import { firestore } from '../firebase/config';
 import { Message } from '@/types/message';
 import { performanceMonitor } from '@/lib/utils/performance';
@@ -22,10 +23,12 @@ interface MessageState {
   loading: boolean;
   error: string | null;
   sendingMessages: Set<string>; // Track tempIds of messages being sent
+  retryQueue: Set<string>; // Track tempIds of messages to retry
 
   // Actions
   subscribeToMessages: (chatId: string) => Unsubscribe;
   sendMessage: (chatId: string, senderId: string, text: string) => Promise<void>;
+  retryMessage: (chatId: string, messageId: string) => Promise<void>;
   markAsRead: (chatId: string, messageId: string, userId: string) => Promise<void>;
   clearUnreadCount: (chatId: string, userId: string) => Promise<void>;
   setActivelyViewing: (chatId: string, userId: string, isViewing: boolean) => Promise<void>;
@@ -39,6 +42,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   loading: false,
   error: null,
   sendingMessages: new Set(),
+  retryQueue: new Set(),
 
   // Subscribe to real-time messages for a chat
   subscribeToMessages: (chatId) => {
@@ -73,27 +77,15 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             // Get all optimistic messages (those with tempId)
             const allOptimisticMessages = currentMessages.filter((msg) => msg.tempId);
 
-            // Filter optimistic messages to keep:
-            // 1. Messages still being sent (in sendingMessages set)
-            // 2. Failed messages (to show error state)
-            // 3. Messages not yet reflected in Firestore (no matching real message)
+            // Keep optimistic messages that are:
+            // 1. Still being sent (in sendingMessages set), OR
+            // 2. Failed (to show error state with retry button)
+            // Successful messages are removed immediately after send (lines 237-254)
             const optimisticMessages = allOptimisticMessages.filter((optMsg) => {
-              // Keep if still sending
-              if (state.sendingMessages.has(optMsg.tempId!)) return true;
-
-              // Keep if failed
-              if (optMsg.status === 'failed') return true;
-
-              // Check if there's a matching real message from Firestore
-              // (same sender, text, and timestamp within 5 seconds)
-              const hasMatchingRealMessage = firestoreMessages.some((realMsg) =>
-                realMsg.senderId === optMsg.senderId &&
-                realMsg.text === optMsg.text &&
-                Math.abs(realMsg.timestamp.getTime() - optMsg.timestamp.getTime()) < 5000
+              return (
+                state.sendingMessages.has(optMsg.tempId!) ||
+                optMsg.status === 'failed'
               );
-
-              // Keep optimistic message only if no matching real message exists
-              return !hasMatchingRealMessage;
             });
 
             // Merge: Firestore messages + optimistic messages that should be kept
@@ -141,17 +133,43 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       type: 'text',
     };
 
-    try {
-      // 1. Add optimistic message immediately (instant UI feedback)
-      set((state) => ({
-        messages: {
-          ...state.messages,
-          [chatId]: [...(state.messages[chatId] || []), optimisticMessage],
-        },
-        sendingMessages: new Set([...state.sendingMessages, tempId]),
-      }));
+    // 1. Add optimistic message immediately (instant UI feedback)
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [chatId]: [...(state.messages[chatId] || []), optimisticMessage],
+      },
+      sendingMessages: new Set([...state.sendingMessages, tempId]),
+    }));
 
-      // 2. Write to Firestore messages subcollection
+    try {
+      // 2. Check network before sending to Firestore
+      const netInfo = await NetInfo.fetch();
+
+      if (!netInfo.isConnected) {
+        // Update optimistic message to failed status
+        set((state) => {
+          const chatMessages = state.messages[chatId] || [];
+          const updatedMessages = chatMessages.map((m) =>
+            m.tempId === tempId
+              ? { ...m, status: 'failed' as const, error: 'No internet connection' }
+              : m
+          );
+
+          const newSendingMessages = new Set(state.sendingMessages);
+          newSendingMessages.delete(tempId);
+
+          return {
+            messages: { ...state.messages, [chatId]: updatedMessages },
+            sendingMessages: newSendingMessages,
+            retryQueue: new Set([...state.retryQueue, tempId]),
+          };
+        });
+
+        throw new Error('No internet connection. Message will be sent when online.');
+      }
+
+      // 3. Write to Firestore messages subcollection
       const messagesRef = collection(firestore, 'chats', chatId, 'messages');
       const messageData = {
         chatId,
@@ -165,7 +183,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       await addDoc(messagesRef, messageData);
 
-      // 3. Update chat's lastMessage and increment unread count for other participants
+      // 4. Update chat's lastMessage and increment unread count for other participants
       const chatRef = doc(firestore, 'chats', chatId);
 
       // Get chat document to find all participants and active viewers
@@ -204,30 +222,15 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       await updateDoc(chatRef, updates);
 
-      // 4. Remove from sendingMessages set (onSnapshot will handle message cleanup)
+      // 5. Remove optimistic message and clear from sendingMessages
+      // (Firestore onSnapshot will add the real message with proper ID)
       set((state) => {
         const newSendingMessages = new Set(state.sendingMessages);
         newSendingMessages.delete(tempId);
 
-        return {
-          sendingMessages: newSendingMessages,
-        };
-      });
-
-      // 5. Measure performance (RUBRIC REQUIREMENT: <200ms)
-      performanceMonitor.measure('Message Send Time', performanceMark);
-    } catch (error: any) {
-      console.error('Error sending message:', error);
-
-      // Mark optimistic message as failed
-      set((state) => {
+        // Remove the optimistic message from state
         const chatMessages = state.messages[chatId] || [];
-        const updatedMessages = chatMessages.map((m) =>
-          m.tempId === tempId ? { ...m, status: 'failed' as const } : m
-        );
-
-        const newSendingMessages = new Set(state.sendingMessages);
-        newSendingMessages.delete(tempId);
+        const updatedMessages = chatMessages.filter((m) => m.tempId !== tempId);
 
         return {
           messages: {
@@ -235,7 +238,236 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             [chatId]: updatedMessages,
           },
           sendingMessages: newSendingMessages,
+        };
+      });
+
+      // 6. Measure performance (RUBRIC REQUIREMENT: <200ms)
+      performanceMonitor.measure('Message Send Time', performanceMark);
+    } catch (error: any) {
+      console.error('Error sending message:', error);
+
+      // Better error categorization (case-insensitive)
+      const errorMessage = (error.message || '').toLowerCase();
+      const isNetworkError =
+        error.code === 'unavailable' ||
+        errorMessage.includes('network') ||
+        errorMessage.includes('internet') ||
+        errorMessage.includes('offline');
+
+      // Mark optimistic message as failed
+      set((state) => {
+        const chatMessages = state.messages[chatId] || [];
+        const updatedMessages = chatMessages.map((m) =>
+          m.tempId === tempId
+            ? {
+                ...m,
+                status: 'failed' as const,
+                error: isNetworkError
+                  ? 'No internet connection'
+                  : 'Failed to send message',
+              }
+            : m
+        );
+
+        const newSendingMessages = new Set(state.sendingMessages);
+        newSendingMessages.delete(tempId);
+
+        const newRetryQueue = new Set(state.retryQueue);
+        if (isNetworkError) {
+          newRetryQueue.add(tempId);
+        }
+
+        return {
+          messages: {
+            ...state.messages,
+            [chatId]: updatedMessages,
+          },
+          sendingMessages: newSendingMessages,
+          retryQueue: newRetryQueue,
           error: error.message,
+        };
+      });
+
+      throw error;
+    }
+  },
+
+  // Retry failed message
+  retryMessage: async (chatId, messageId) => {
+    console.log('🔄 [MessageStore] Retry initiated for message:', messageId, 'in chat:', chatId);
+
+    const state = get();
+    const chatMessages = state.messages[chatId] || [];
+    const failedMessage = chatMessages.find((m) => m.id === messageId || m.tempId === messageId);
+
+    if (!failedMessage) {
+      console.error('❌ [MessageStore] Message not found:', messageId);
+      throw new Error('Message not found');
+    }
+
+    console.log('🔄 [MessageStore] Found failed message:', {
+      text: failedMessage.text.substring(0, 20),
+      status: failedMessage.status,
+      error: failedMessage.error,
+    });
+
+    // Remove from retry queue first
+    const newRetryQueue = new Set(state.retryQueue);
+    newRetryQueue.delete(messageId);
+    set({ retryQueue: newRetryQueue });
+    console.log('🔄 [MessageStore] Removed from retry queue. Queue size:', newRetryQueue.size);
+
+    // Update existing failed message to "sending" status (don't create new message)
+    set((state) => {
+      const chatMessages = state.messages[chatId] || [];
+      const updatedMessages = chatMessages.map((m) =>
+        (m.id === messageId || m.tempId === messageId)
+          ? { ...m, status: 'sending' as const, error: undefined }
+          : m
+      );
+
+      return {
+        messages: { ...state.messages, [chatId]: updatedMessages },
+        sendingMessages: new Set([...state.sendingMessages, messageId]),
+      };
+    });
+    console.log('🔄 [MessageStore] Updated message status to "sending"');
+
+    // Now try to send to Firestore
+    try {
+      // Check network
+      console.log('🔄 [MessageStore] Checking network status...');
+      const netInfo = await NetInfo.fetch();
+      console.log('📶 [MessageStore] Network status:', {
+        isConnected: netInfo.isConnected,
+        isInternetReachable: netInfo.isInternetReachable,
+        type: netInfo.type,
+      });
+
+      if (!netInfo.isConnected) {
+        console.log('❌ [MessageStore] Still offline, marking as failed again');
+        // Still offline, mark as failed again
+        set((state) => {
+          const chatMessages = state.messages[chatId] || [];
+          const updatedMessages = chatMessages.map((m) =>
+            (m.id === messageId || m.tempId === messageId)
+              ? { ...m, status: 'failed' as const, error: 'No internet connection' }
+              : m
+          );
+
+          const newSendingMessages = new Set(state.sendingMessages);
+          newSendingMessages.delete(messageId);
+
+          return {
+            messages: { ...state.messages, [chatId]: updatedMessages },
+            sendingMessages: newSendingMessages,
+            retryQueue: new Set([...state.retryQueue, messageId]),
+          };
+        });
+
+        throw new Error('Still offline');
+      }
+
+      // Send to Firestore
+      const messagesRef = collection(firestore, 'chats', chatId, 'messages');
+      const messageData = {
+        chatId,
+        senderId: failedMessage.senderId,
+        text: failedMessage.text,
+        timestamp: serverTimestamp(),
+        status: 'sent',
+        readBy: [failedMessage.senderId],
+        type: failedMessage.type || 'text',
+      };
+
+      await addDoc(messagesRef, messageData);
+
+      // Update chat's lastMessage
+      const chatRef = doc(firestore, 'chats', chatId);
+      const chatDoc = await getDoc(chatRef);
+      const chatData = chatDoc.data();
+      const participants = chatData?.participants || [];
+      const activeViewers = chatData?.activeViewers || {};
+
+      const updates: any = {
+        lastMessage: {
+          text: failedMessage.text,
+          senderId: failedMessage.senderId,
+          timestamp: serverTimestamp(),
+        },
+        updatedAt: serverTimestamp(),
+      };
+
+      const now = Date.now();
+      participants.forEach((participantId: string) => {
+        if (participantId !== failedMessage.senderId) {
+          const viewerTimestamp = activeViewers[participantId];
+          const isActivelyViewing = viewerTimestamp &&
+            (now - (viewerTimestamp.toMillis ? viewerTimestamp.toMillis() : viewerTimestamp) < 5000);
+
+          if (!isActivelyViewing) {
+            updates[`unreadCount.${participantId}`] = increment(1);
+          }
+        }
+      });
+
+      await updateDoc(chatRef, updates);
+
+      // Remove optimistic message and clear from sendingMessages
+      // (Firestore onSnapshot will add the real message)
+      set((state) => {
+        const newSendingMessages = new Set(state.sendingMessages);
+        newSendingMessages.delete(messageId);
+
+        // Remove the optimistic/failed message from state
+        const chatMessages = state.messages[chatId] || [];
+        const updatedMessages = chatMessages.filter(
+          (m) => m.id !== messageId && m.tempId !== messageId
+        );
+
+        return {
+          messages: {
+            ...state.messages,
+            [chatId]: updatedMessages,
+          },
+          sendingMessages: newSendingMessages,
+        };
+      });
+    } catch (error: any) {
+      console.error('Retry failed:', error);
+
+      // Mark as failed again
+      const errorMessage = (error.message || '').toLowerCase();
+      const isNetworkError =
+        error.code === 'unavailable' ||
+        errorMessage.includes('network') ||
+        errorMessage.includes('internet') ||
+        errorMessage.includes('offline');
+
+      set((state) => {
+        const chatMessages = state.messages[chatId] || [];
+        const updatedMessages = chatMessages.map((m) =>
+          (m.id === messageId || m.tempId === messageId)
+            ? {
+                ...m,
+                status: 'failed' as const,
+                error: isNetworkError ? 'No internet connection' : 'Failed to send message',
+              }
+            : m
+        );
+
+        const newSendingMessages = new Set(state.sendingMessages);
+        newSendingMessages.delete(messageId);
+
+        const newRetryQueue = new Set(state.retryQueue);
+        if (isNetworkError) {
+          newRetryQueue.add(messageId);
+        }
+
+        return {
+          messages: { ...state.messages, [chatId]: updatedMessages },
+          sendingMessages: newSendingMessages,
+          retryQueue: newRetryQueue,
         };
       });
 
