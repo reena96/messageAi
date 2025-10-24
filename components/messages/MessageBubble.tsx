@@ -6,19 +6,64 @@ interface MessageBubbleProps {
   message: Message;
   isOwnMessage: boolean;
   showAvatar?: boolean;
+  chatParticipants?: string[]; // All participants in the chat
+  currentUserId?: string; // Current user's ID
 }
 
-export default function MessageBubble({ message, isOwnMessage, showAvatar = false }: MessageBubbleProps) {
+export default function MessageBubble({
+  message,
+  isOwnMessage,
+  showAvatar = false,
+  chatParticipants = [],
+  currentUserId,
+}: MessageBubbleProps) {
+
+  // Compute actual message status based on readBy array
+  const getActualStatus = (): Message['status'] => {
+    // Failed messages
+    if (message.status === 'failed') return 'failed';
+
+    // Sending messages (optimistic UI)
+    if (message.status === 'sending') return 'sending';
+
+    // For own messages, compute status based on who has read it
+    if (isOwnMessage && currentUserId) {
+      const otherParticipants = chatParticipants.filter(id => id !== currentUserId);
+
+      if (otherParticipants.length === 0) {
+        return 'sent'; // No other participants (shouldn't happen)
+      }
+
+      // Check how many other participants have read the message
+      const readByOthers = otherParticipants.filter(id => message.readBy.includes(id));
+
+      if (readByOthers.length === otherParticipants.length) {
+        // All other participants have read it
+        return 'read';
+      } else if (readByOthers.length > 0) {
+        // Some (but not all) have read it - show as read in group, delivered in 1-on-1
+        return otherParticipants.length === 1 ? 'read' : 'read'; // Blue checkmarks when anyone reads
+      } else {
+        // Message delivered but not read yet
+        return 'delivered';
+      }
+    }
+
+    return message.status;
+  };
+
+  const actualStatus = getActualStatus();
+
   const getStatusIcon = () => {
-    switch (message.status) {
+    switch (actualStatus) {
       case 'sending':
-        return <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.7)" />;
+        return <Ionicons name="time-outline" size={14} color="rgba(0,0,0,0.4)" />;
       case 'sent':
-        return <Ionicons name="checkmark" size={14} color="rgba(255,255,255,0.7)" />;
+        return <Ionicons name="checkmark" size={14} color="rgba(0,0,0,0.4)" />;
       case 'delivered':
-        return <Ionicons name="checkmark-done" size={14} color="rgba(255,255,255,0.7)" />;
+        return <Ionicons name="checkmark-done" size={14} color="rgba(0,0,0,0.4)" />;
       case 'read':
-        return <Ionicons name="checkmark-done" size={14} color="#34C759" />;
+        return <Ionicons name="checkmark-done" size={14} color="#4FC3F7" />; // WhatsApp blue
       case 'failed':
         return <Ionicons name="alert-circle" size={14} color="#FF3B30" />;
       default:
@@ -36,7 +81,7 @@ export default function MessageBubble({ message, isOwnMessage, showAvatar = fals
         style={[
           styles.bubble,
           isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble,
-          message.status === 'failed' && styles.failedBubble,
+          actualStatus === 'failed' && styles.failedBubble,
         ]}
       >
         <Text
@@ -87,23 +132,25 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
   bubble: {
-    maxWidth: '75%',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    maxWidth: '80%',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 0.5 },
+    shadowOpacity: 0.08,
+    shadowRadius: 1.5,
+    elevation: 1,
   },
   ownMessageBubble: {
-    backgroundColor: '#007AFF',
-    borderBottomRightRadius: 6,
+    backgroundColor: '#DCF8C6', // WhatsApp green
+    borderBottomRightRadius: 2,
   },
   otherMessageBubble: {
-    backgroundColor: '#F2F2F7',
-    borderBottomLeftRadius: 6,
+    backgroundColor: '#FFFFFF', // WhatsApp white
+    borderBottomLeftRadius: 2,
+    borderWidth: 0.5,
+    borderColor: '#E5E5EA',
   },
   failedBubble: {
     backgroundColor: '#FFE5E5',
@@ -111,12 +158,12 @@ const styles = StyleSheet.create({
     borderColor: '#FF3B30',
   },
   text: {
-    fontSize: 16,
-    lineHeight: 22,
-    letterSpacing: 0.1,
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: 0,
   },
   ownMessageText: {
-    color: '#FFFFFF',
+    color: '#000000', // WhatsApp uses black text on green
   },
   otherMessageText: {
     color: '#000000',
@@ -130,10 +177,10 @@ const styles = StyleSheet.create({
   timestamp: {
     fontSize: 11,
     fontWeight: '400',
-    letterSpacing: 0.05,
+    letterSpacing: 0,
   },
   ownTimestamp: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(0,0,0,0.45)', // WhatsApp timestamp on green
   },
   otherTimestamp: {
     color: 'rgba(0,0,0,0.45)',

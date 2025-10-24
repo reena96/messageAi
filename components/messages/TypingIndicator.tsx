@@ -6,9 +6,10 @@ import { firestore } from '@/lib/firebase/config';
 interface TypingIndicatorProps {
   chatId: string;
   currentUserId: string;
+  participantDetails?: { [userId: string]: { displayName: string; photoURL?: string } };
 }
 
-export default function TypingIndicator({ chatId, currentUserId }: TypingIndicatorProps) {
+export default function TypingIndicator({ chatId, currentUserId, participantDetails }: TypingIndicatorProps) {
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
   useEffect(() => {
@@ -46,11 +47,24 @@ export default function TypingIndicator({ chatId, currentUserId }: TypingIndicat
     return null;
   }
 
+  // Get display names for typing users
+  const getTypingText = () => {
+    if (typingUsers.length === 1) {
+      const userId = typingUsers[0];
+      const displayName = participantDetails?.[userId]?.displayName || 'Someone';
+      return `${displayName} is typing...`;
+    } else if (typingUsers.length === 2) {
+      const name1 = participantDetails?.[typingUsers[0]]?.displayName || 'Someone';
+      const name2 = participantDetails?.[typingUsers[1]]?.displayName || 'Someone';
+      return `${name1} and ${name2} are typing...`;
+    } else {
+      return `${typingUsers.length} people are typing...`;
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>
-        {typingUsers.length === 1 ? 'Someone is typing...' : 'Multiple people are typing...'}
-      </Text>
+      <Text style={styles.text}>{getTypingText()}</Text>
     </View>
   );
 }

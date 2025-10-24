@@ -55,6 +55,22 @@ export default function ChatsScreen() {
     // Get first letter for avatar
     const avatarLetter = displayName.charAt(0).toUpperCase();
 
+    // Generate consistent avatar color based on display name (WhatsApp style)
+    const getAvatarColor = (name: string) => {
+      const colors = [
+        '#00BFA5', // Teal
+        '#1DE9B6', // Light teal
+        '#00BCD4', // Cyan
+        '#00ACC1', // Dark cyan
+        '#26C6DA', // Light cyan
+        '#4DD0E1', // Lighter cyan
+        '#80DEEA', // Very light cyan
+        '#B2EBF2', // Pale cyan
+      ];
+      const index = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
+      return colors[index];
+    };
+
     // Get unread count for current user
     const unreadCount = user ? item.unreadCount[user.uid] || 0 : 0;
 
@@ -87,7 +103,7 @@ export default function ChatsScreen() {
         onPress={() => router.push(`/chat/${item.id}`)}
         activeOpacity={0.6}
       >
-        <View style={styles.avatar}>
+        <View style={[styles.avatar, { backgroundColor: getAvatarColor(displayName) }]}>
           <Text style={styles.avatarText}>{avatarLetter}</Text>
         </View>
         <View style={styles.chatInfo}>
@@ -149,7 +165,7 @@ export default function ChatsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#FFFFFF', // WhatsApp white background
   },
   centered: {
     flex: 1,
@@ -175,15 +191,10 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#007AFF',
+    // backgroundColor set dynamically per avatar (WhatsApp style)
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   avatarText: {
     color: '#FFFFFF',
@@ -227,7 +238,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   unreadBadge: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#25D366', // WhatsApp green
     borderRadius: 12,
     minWidth: 24,
     height: 24,
