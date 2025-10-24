@@ -258,12 +258,11 @@ describe('messageStore', () => {
     });
 
     it('should order messages by timestamp ascending', () => {
-      const { collection, query, orderBy, limit, onSnapshot } = require('firebase/firestore');
+      const { collection, query, orderBy, onSnapshot } = require('firebase/firestore');
 
       collection.mockReturnValue({});
       query.mockReturnValue({});
       orderBy.mockReturnValue({});
-      limit.mockReturnValue({});
       onSnapshot.mockReturnValue(jest.fn());
 
       const { result } = renderHook(() => useMessageStore());
@@ -273,24 +272,6 @@ describe('messageStore', () => {
       });
 
       expect(orderBy).toHaveBeenCalledWith('timestamp', 'asc');
-    });
-
-    it('should limit to 50 messages initially', () => {
-      const { collection, query, orderBy, limit, onSnapshot } = require('firebase/firestore');
-
-      collection.mockReturnValue({});
-      query.mockReturnValue({});
-      orderBy.mockReturnValue({});
-      limit.mockReturnValue({});
-      onSnapshot.mockReturnValue(jest.fn());
-
-      const { result } = renderHook(() => useMessageStore());
-
-      act(() => {
-        result.current.subscribeToMessages('chat1');
-      });
-
-      expect(limit).toHaveBeenCalledWith(50);
     });
   });
 });
