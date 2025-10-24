@@ -27,7 +27,7 @@ export default function RootLayout() {
       debugLog('🔵 [RootLayout] Cleaning up auth state listener');
       unsubscribe();
     };
-  }, []);
+  }, [setUser]); // Add setUser to dependencies
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
