@@ -165,13 +165,12 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMessages, user?.uid, chatId]); // Zustand function removed from deps
 
-  // Capture initial unread state BEFORE marking messages as read
+  // Capture initial unread state AND perform initial scroll (combined for correct timing)
   useEffect(() => {
     if (!user || chatMessages.length === 0) return;
 
-    // Only capture once when messages first load
+    // Step 1: Capture unread state (only once)
     if (initialUnreadIndexRef.current === -1) {
-      // Find first unread message by iterating through ALL messages
       let foundIndex = -1;
       let foundCount = 0;
 
@@ -182,7 +181,7 @@ export default function ChatScreen() {
         if (isUnread) {
           foundCount++;
           if (foundIndex === -1) {
-            foundIndex = i; // First unread message index
+            foundIndex = i;
           }
         }
       }
@@ -191,12 +190,56 @@ export default function ChatScreen() {
         initialUnreadIndexRef.current = foundIndex;
         initialUnreadCountRef.current = foundCount;
       } else if (chatLevelUnreadCount > 0) {
-        // Fallback: use chat-level count
-        // Find the Nth message from the end where N = chatLevelUnreadCount
         const estimatedIndex = Math.max(0, chatMessages.length - chatLevelUnreadCount);
         initialUnreadIndexRef.current = estimatedIndex;
         initialUnreadCountRef.current = chatLevelUnreadCount;
+      } else {
+        // No unread messages
+        initialUnreadIndexRef.current = -2; // Use -2 to indicate "checked and no unread"
       }
+
+      console.log('📜 [ChatScreen] Captured initial unread state:', {
+        foundIndex: initialUnreadIndexRef.current,
+        foundCount: initialUnreadCountRef.current,
+        totalMessages: chatMessages.length,
+      });
+    }
+
+    // Step 2: Perform initial scroll (only once, after capture)
+    if (!hasScrolledToUnreadRef.current && initialUnreadIndexRef.current !== -1) {
+      console.log('📜 [ChatScreen] Initial scroll will execute in 100ms');
+
+      const scrollTimeout = setTimeout(() => {
+        const unreadIdx = initialUnreadIndexRef.current;
+
+        if (unreadIdx >= 0) {
+          // Has unread messages - scroll to center
+          console.log('📜 [ChatScreen] Scrolling to unread at index:', unreadIdx);
+          try {
+            flatListRef.current?.scrollToIndex({
+              index: unreadIdx,
+              animated: false,
+              viewPosition: 0.5,
+            });
+            hasScrolledToUnreadRef.current = true;
+            previousMessageCountRef.current = chatMessages.length;
+            console.log('✅ [ChatScreen] Scrolled to unread successfully');
+          } catch (error) {
+            console.log('❌ [ChatScreen] scrollToIndex failed:', error);
+            flatListRef.current?.scrollToEnd({ animated: false });
+            hasScrolledToUnreadRef.current = true;
+            previousMessageCountRef.current = chatMessages.length;
+          }
+        } else if (unreadIdx === -2) {
+          // No unread - scroll to bottom
+          console.log('📜 [ChatScreen] No unread, scrolling to bottom');
+          flatListRef.current?.scrollToEnd({ animated: false });
+          hasScrolledToUnreadRef.current = true;
+          previousMessageCountRef.current = chatMessages.length;
+        }
+      }, 100);
+
+      return () => clearTimeout(scrollTimeout);
     }
   }, [chatMessages.length, user, chatLevelUnreadCount]);
 
@@ -210,51 +253,30 @@ export default function ChatScreen() {
     previousMessageCountRef.current = 0; // Reset message count
   }, [chatId]);
 
-  // Scroll to first unread message or bottom on initial load
-  useEffect(() => {
-    if (!user || chatMessages.length === 0 || hasScrolledToUnreadRef.current) return;
-
-    // Wait for FlatList to render messages before scrolling
-    const scrollTimeout = setTimeout(() => {
-      if (firstUnreadIndex !== -1) {
-        // There are unread messages - scroll to center of screen (WhatsApp style)
-        try {
-          flatListRef.current?.scrollToIndex({
-            index: firstUnreadIndex,
-            animated: false,
-            viewPosition: 0.5, // Position at CENTER of screen - shows context above and unread below
-          });
-          hasScrolledToUnreadRef.current = true;
-          previousMessageCountRef.current = chatMessages.length;
-        } catch (error) {
-          // If scrollToIndex fails, fallback to scrollToEnd
-          flatListRef.current?.scrollToEnd({ animated: false });
-          hasScrolledToUnreadRef.current = true;
-          previousMessageCountRef.current = chatMessages.length;
-        }
-      } else {
-        // No unread messages - scroll to bottom
-        flatListRef.current?.scrollToEnd({ animated: false });
-        hasScrolledToUnreadRef.current = true;
-        previousMessageCountRef.current = chatMessages.length;
-      }
-    }, 100); // Increased delay to ensure messages are rendered
-
-    return () => clearTimeout(scrollTimeout);
-  }, [chatMessages.length, firstUnreadIndex, user]);
-
   // Auto-scroll to bottom when new messages arrive (only if user is near bottom)
   useEffect(() => {
     // Skip on initial load
-    if (!hasScrolledToUnreadRef.current) return;
+    if (!hasScrolledToUnreadRef.current) {
+      console.log('📜 [ChatScreen] Auto-scroll skipped - still on initial load');
+      return;
+    }
 
     // Check if message count increased (new message arrived)
     if (chatMessages.length > previousMessageCountRef.current) {
+      console.log('📜 [ChatScreen] New message detected:', {
+        newCount: chatMessages.length,
+        previousCount: previousMessageCountRef.current,
+        isNearBottom: isNearBottomRef.current,
+      });
+
       // Only auto-scroll if user is near bottom (don't interrupt if reading history)
       if (isNearBottomRef.current) {
+        console.log('✅ [ChatScreen] Auto-scrolling to bottom (user is near bottom)');
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 100);
+      } else {
+        console.log('⏸️ [ChatScreen] NOT auto-scrolling (user is reading history)');
       }
       previousMessageCountRef.current = chatMessages.length;
     }
@@ -308,9 +330,13 @@ export default function ChatScreen() {
     try {
       await sendMessage(chatId, user.uid, messageText);
 
-      // Scroll to bottom after sending (user sent a message)
+      // ALWAYS scroll to bottom after sending (user sent a message)
+      // This happens regardless of isNearBottomRef state
+      console.log('📜 [ChatScreen] Scrolling to bottom after sending message');
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
+        // Mark that we're now at bottom (so future messages auto-scroll)
+        isNearBottomRef.current = true;
       }, 150);
     } catch (error) {
       console.error('Failed to send message:', error);
