@@ -86,6 +86,13 @@ export default function LoginScreen() {
         )}
       </TouchableOpacity>
 
+      <TouchableOpacity
+        onPress={() => router.push('/(auth)/signup')}
+        testID="signup-link"
+      >
+        <Text style={styles.link}>Don't have an account? Sign up</Text>
+      </TouchableOpacity>
+
       <View style={styles.divider}>
         <View style={styles.dividerLine} />
         <Text style={styles.dividerText}>or</Text>
@@ -106,13 +113,6 @@ export default function LoginScreen() {
             <Text style={styles.googleButtonText}>Sign in with Google</Text>
           </>
         )}
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={() => router.push('/(auth)/signup')}
-        testID="signup-link"
-      >
-        <Text style={styles.link}>Don't have an account? Sign up</Text>
       </TouchableOpacity>
 
       <DevTestLogin />
