@@ -46,6 +46,8 @@ export default function ChatScreen() {
   const hasScrolledToUnreadRef = useRef(false); // Track if we've scrolled to unread on initial load
   const initialUnreadIndexRef = useRef<number>(-1); // Save initial unread index
   const initialUnreadCountRef = useRef<number>(0); // Save initial unread count
+  const isNearBottomRef = useRef(true); // Track if user is scrolled near bottom
+  const previousMessageCountRef = useRef(0); // Track previous message count for auto-scroll
 
   const chatMessages = messages[chatId] || [];
 
@@ -204,39 +206,67 @@ export default function ChatScreen() {
     hasScrolledToUnreadRef.current = false; // Reset scroll tracking
     initialUnreadIndexRef.current = -1; // Reset unread index
     initialUnreadCountRef.current = 0; // Reset unread count
+    isNearBottomRef.current = true; // Reset to bottom
+    previousMessageCountRef.current = 0; // Reset message count
   }, [chatId]);
 
   // Scroll to first unread message or bottom on initial load
   useEffect(() => {
     if (!user || chatMessages.length === 0 || hasScrolledToUnreadRef.current) return;
 
-    // Use requestAnimationFrame for smooth, immediate scroll on next frame
-    const animationFrame = requestAnimationFrame(() => {
-      const scrollTimeout = setTimeout(() => {
-        if (firstUnreadIndex !== -1) {
-          // There are unread messages - scroll to center of screen (WhatsApp style)
-          try {
-            flatListRef.current?.scrollToIndex({
-              index: firstUnreadIndex,
-              animated: false,
-              viewPosition: 0.5, // Position at CENTER of screen - shows context above and unread below
-            });
-          } catch (error) {
-            // If scrollToIndex fails, fallback to scrollToEnd
-            flatListRef.current?.scrollToEnd({ animated: false });
-          }
-        } else {
-          // No unread messages - scroll to bottom
+    // Wait for FlatList to render messages before scrolling
+    const scrollTimeout = setTimeout(() => {
+      if (firstUnreadIndex !== -1) {
+        // There are unread messages - scroll to center of screen (WhatsApp style)
+        try {
+          flatListRef.current?.scrollToIndex({
+            index: firstUnreadIndex,
+            animated: false,
+            viewPosition: 0.5, // Position at CENTER of screen - shows context above and unread below
+          });
+          hasScrolledToUnreadRef.current = true;
+          previousMessageCountRef.current = chatMessages.length;
+        } catch (error) {
+          // If scrollToIndex fails, fallback to scrollToEnd
           flatListRef.current?.scrollToEnd({ animated: false });
+          hasScrolledToUnreadRef.current = true;
+          previousMessageCountRef.current = chatMessages.length;
         }
+      } else {
+        // No unread messages - scroll to bottom
+        flatListRef.current?.scrollToEnd({ animated: false });
         hasScrolledToUnreadRef.current = true;
-      }, 50); // Reduced delay for faster initial render
+        previousMessageCountRef.current = chatMessages.length;
+      }
+    }, 100); // Increased delay to ensure messages are rendered
 
-      return () => clearTimeout(scrollTimeout);
-    });
-
-    return () => cancelAnimationFrame(animationFrame);
+    return () => clearTimeout(scrollTimeout);
   }, [chatMessages.length, firstUnreadIndex, user]);
+
+  // Auto-scroll to bottom when new messages arrive (only if user is near bottom)
+  useEffect(() => {
+    // Skip on initial load
+    if (!hasScrolledToUnreadRef.current) return;
+
+    // Check if message count increased (new message arrived)
+    if (chatMessages.length > previousMessageCountRef.current) {
+      // Only auto-scroll if user is near bottom (don't interrupt if reading history)
+      if (isNearBottomRef.current) {
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+      previousMessageCountRef.current = chatMessages.length;
+    }
+  }, [chatMessages.length]);
+
+  // Track scroll position to know if user is near bottom
+  const handleScroll = (event: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const paddingToBottom = 100; // Consider "near bottom" if within 100px of bottom
+    isNearBottomRef.current =
+      layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+  };
 
   // Handle typing indicator
   const handleTextChange = (text: string) => {
@@ -372,6 +402,8 @@ export default function ChatScreen() {
           }}
           keyExtractor={(item) => item.id || item.tempId || ''}
           contentContainerStyle={styles.messageList}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           onScrollToIndexFailed={(info) => {
             // Handle out of range - retry after a delay
             const wait = new Promise((resolve) => setTimeout(resolve, 100));
