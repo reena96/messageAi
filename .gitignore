@@ -56,3 +56,6 @@ codegen_manual.log
 # generated native folders
 /ios
 /android
+
+# AI-generated agent files
+AGENTS.md
