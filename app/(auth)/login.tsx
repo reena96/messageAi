@@ -1,13 +1,23 @@
 import { View, TextInput, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import { useAuthStore } from '@/lib/store/authStore';
 import DevTestLogin from '@/components/dev/DevTestLogin';
+import { Ionicons } from '@expo/vector-icons';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { signIn, loading, error, clearError } = useAuthStore();
+  const { signIn, signInWithGoogle, loading, error, clearError } = useAuthStore();
+
+  // Configure Google Sign-In
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      offlineAccess: true,
+    });
+  }, []);
 
   const handleLogin = async () => {
     clearError();
@@ -21,6 +31,17 @@ export default function LoginScreen() {
       router.replace('/(tabs)/chats');
     } catch (err) {
       console.error('Login error:', err);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    clearError();
+
+    try {
+      await signInWithGoogle();
+      router.replace('/(tabs)/chats');
+    } catch (err) {
+      console.error('Google sign-in error:', err);
     }
   };
 
@@ -61,6 +82,28 @@ export default function LoginScreen() {
           <ActivityIndicator color="#fff" />
         ) : (
           <Text style={styles.buttonText}>Sign In</Text>
+        )}
+      </TouchableOpacity>
+
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>or</Text>
+        <View style={styles.dividerLine} />
+      </View>
+
+      <TouchableOpacity
+        style={[styles.googleButton, loading && styles.buttonDisabled]}
+        onPress={handleGoogleSignIn}
+        disabled={loading}
+        testID="google-signin-button"
+      >
+        {loading ? (
+          <ActivityIndicator color="#000" />
+        ) : (
+          <>
+            <Ionicons name="logo-google" size={20} color="#EA4335" style={styles.googleIcon} />
+            <Text style={styles.googleButtonText}>Sign in with Google</Text>
+          </>
         )}
       </TouchableOpacity>
 
@@ -121,5 +164,39 @@ const styles = StyleSheet.create({
     color: 'red',
     marginBottom: 10,
     textAlign: 'center',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#ddd',
+  },
+  dividerText: {
+    marginHorizontal: 10,
+    color: '#8E8E93',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  googleButton: {
+    backgroundColor: '#FFFFFF',
+    padding: 15,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  googleIcon: {
+    marginRight: 10,
+  },
+  googleButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
