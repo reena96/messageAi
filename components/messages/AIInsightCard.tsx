@@ -70,7 +70,7 @@ export default function AIInsightCard({
       {hasDeadlines && renderDeadlineCard(deadlines![0], chatId, message.id)}
 
       {/* RSVP - invitations or responses */}
-      {hasRSVP && renderRSVPCard(rsvp!, chatId, currentUserId, onSendMessage)}
+      {hasRSVP && renderRSVPCard(rsvp!, chatId, currentUserId, message.senderId, onSendMessage)}
 
       {/* Calendar events */}
       {hasCalendar && renderCalendarCard(calendarEvents![0], onNavigate)}
@@ -225,6 +225,7 @@ function renderRSVPCard(
   rsvp: RSVP,
   chatId: string,
   currentUserId: string,
+  messageSenderId: string,
   onSendMessage?: (chatId: string, senderId: string, text: string) => Promise<void>
 ) {
   const handleRSVP = (response: 'yes' | 'no' | 'maybe') => {
@@ -233,8 +234,10 @@ function renderRSVPCard(
     }
   };
 
+  const isOwnMessage = messageSenderId === currentUserId;
+
   if (rsvp.isInvitation) {
-    // Invitation card with RSVP buttons - show to everyone
+    // Invitation card
     return (
       <View style={[styles.card, styles.rsvpCard]}>
         <View style={styles.cardHeader}>
@@ -255,33 +258,35 @@ function renderRSVPCard(
           )}
         </View>
 
-        {/* Quick Actions: RSVP Buttons */}
-        <View style={styles.quickActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.yesButton]}
-            onPress={() => handleRSVP('yes')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="checkmark-circle" size={16} color="#FFF" />
-            <Text style={styles.actionButtonText}>Yes</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.noButton]}
-            onPress={() => handleRSVP('no')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="close-circle" size={16} color="#FFF" />
-            <Text style={styles.actionButtonText}>No</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.maybeButton]}
-            onPress={() => handleRSVP('maybe')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="help-circle" size={16} color="#FFF" />
-            <Text style={styles.actionButtonText}>Maybe</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Quick Actions: RSVP Buttons - Only show to recipients (not the sender/host) */}
+        {!isOwnMessage && (
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.yesButton]}
+              onPress={() => handleRSVP('yes')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="checkmark-circle" size={16} color="#FFF" />
+              <Text style={styles.actionButtonText}>Yes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.noButton]}
+              onPress={() => handleRSVP('no')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={16} color="#FFF" />
+              <Text style={styles.actionButtonText}>No</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.maybeButton]}
+              onPress={() => handleRSVP('maybe')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="help-circle" size={16} color="#FFF" />
+              <Text style={styles.actionButtonText}>Maybe</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     );
   } else if (rsvp.isResponse && rsvp.response) {
