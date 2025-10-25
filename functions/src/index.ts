@@ -9,3 +9,5 @@
 
 // Export Cloud Functions
 export {calendarExtraction} from "./ai/calendarExtraction";
+export {decisionExtraction} from "./ai/decisionExtraction";
+export {priorityDetection} from "./ai/priorityDetection";
