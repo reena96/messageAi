@@ -9,6 +9,9 @@ interface MessageBubbleProps {
   showAvatar?: boolean;
   chatParticipants?: string[]; // All participants in the chat
   currentUserId?: string; // Current user's ID
+  isGroupTop?: boolean;
+  isGroupBottom?: boolean;
+  isOptimistic?: boolean;
 }
 
 export default function MessageBubble({
@@ -17,6 +20,9 @@ export default function MessageBubble({
   showAvatar = false,
   chatParticipants = [],
   currentUserId,
+  isGroupTop = true,
+  isGroupBottom = true,
+  isOptimistic = false,
 }: MessageBubbleProps) {
   const retryMessage = useMessageStore((state) => state.retryMessage);
 
@@ -65,6 +71,38 @@ export default function MessageBubble({
   };
 
   const actualStatus = getActualStatus();
+  const optimisticStatus = message.optimisticStatus;
+  const isPendingOptimistic =
+    optimisticStatus === 'pending' || actualStatus === 'sending';
+  const isAwaitingResolution =
+    optimisticStatus && optimisticStatus !== 'confirmed';
+
+  const statusSpokenLabel = (() => {
+    switch (actualStatus) {
+      case 'sending':
+        return 'Sending';
+      case 'sent':
+        return 'Sent';
+      case 'delivered':
+        return 'Delivered';
+      case 'read':
+        return 'Read';
+      case 'failed':
+        return 'Failed to send';
+      default:
+        return 'Status unknown';
+    }
+  })();
+
+  const accessibilityLabel = `${isOwnMessage ? 'You' : 'Contact'} said: ${message.text}. Status: ${statusSpokenLabel}.`;
+  const accessibilityHint =
+    actualStatus === 'failed'
+      ? 'Double tap to retry sending this message.'
+      : isPendingOptimistic
+      ? 'Message is being sent.'
+      : undefined;
+  const accessibilityState = isPendingOptimistic ? { busy: true } : undefined;
+  const accessibilityLiveRegion = isAwaitingResolution ? 'polite' : undefined;
 
   const getStatusIcon = () => {
     switch (actualStatus) {
@@ -84,7 +122,11 @@ export default function MessageBubble({
   };
 
   return (
-    <View style={[styles.container, isOwnMessage && styles.ownMessageContainer]}>
+    <View style={[
+      styles.container,
+      isOwnMessage && styles.ownMessageContainer,
+      !isGroupBottom && styles.groupedContainer,
+    ]}>
       {!isOwnMessage && showAvatar && (
         <View style={styles.avatarPlaceholder} />
       )}
@@ -93,8 +135,17 @@ export default function MessageBubble({
         style={[
           styles.bubble,
           isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble,
+          !isGroupTop && (isOwnMessage ? styles.ownGroupedTop : styles.otherGroupedTop),
+          !isGroupBottom && (isOwnMessage ? styles.ownGroupedBottom : styles.otherGroupedBottom),
+          isOptimistic && styles.optimisticBubble,
           actualStatus === 'failed' && styles.failedBubble,
         ]}
+        accessible
+        accessibilityRole="text"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
+        accessibilityState={accessibilityState}
+        accessibilityLiveRegion={accessibilityLiveRegion}
       >
         <Text
           style={[styles.text, isOwnMessage ? styles.ownMessageText : styles.otherMessageText]}
@@ -148,6 +199,9 @@ const styles = StyleSheet.create({
   ownMessageContainer: {
     justifyContent: 'flex-end',
   },
+  groupedContainer: {
+    marginBottom: 4,
+  },
   avatarPlaceholder: {
     width: 28,
     height: 28,
@@ -170,16 +224,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#DCF8C6', // WhatsApp green
     borderBottomRightRadius: 2,
   },
+  ownGroupedTop: {
+    borderTopRightRadius: 4,
+  },
+  ownGroupedBottom: {
+    borderBottomRightRadius: 4,
+    marginTop: 2,
+  },
   otherMessageBubble: {
     backgroundColor: '#FFFFFF', // WhatsApp white
     borderBottomLeftRadius: 2,
     borderWidth: 0.5,
     borderColor: '#E5E5EA',
   },
+  otherGroupedTop: {
+    borderTopLeftRadius: 4,
+  },
+  otherGroupedBottom: {
+    borderBottomLeftRadius: 4,
+    marginTop: 2,
+  },
   failedBubble: {
     backgroundColor: '#FFE5E5',
     borderWidth: 1,
     borderColor: '#FF3B30',
+  },
+  optimisticBubble: {
+    opacity: 0.8,
   },
   text: {
     fontSize: 15,

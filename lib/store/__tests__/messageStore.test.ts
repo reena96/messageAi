@@ -5,6 +5,10 @@ import { useMessageStore } from '../messageStore';
 jest.mock('firebase/firestore');
 jest.mock('@/lib/firebase/config');
 jest.mock('@/lib/utils/performance');
+jest.mock('firebase/functions', () => ({
+  getFunctions: jest.fn(),
+  httpsCallable: jest.fn(() => jest.fn()),
+}));
 
 describe('messageStore', () => {
   // Suppress console.error for expected errors during tests
@@ -14,9 +18,17 @@ describe('messageStore', () => {
     // Reset store state before each test
     useMessageStore.setState({
       messages: {},
+      messageEntities: {},
+      messageIdsByChat: {},
       loading: false,
       error: null,
       sendingMessages: new Set(),
+      retryQueue: new Set(),
+      optimisticMetadata: {},
+      optimisticIdMap: {},
+      hasMoreMessages: {},
+      loadingOlder: {},
+      oldestMessageDoc: {},
     });
 
     // Reset all mocks
@@ -53,12 +65,17 @@ describe('messageStore', () => {
       const chatMessages = result.current.messages['chat1'] || [];
       expect(chatMessages.length).toBeGreaterThan(0);
 
-      const optimisticMsg = chatMessages.find(m => m.tempId);
+      const optimisticMsg = chatMessages.find((m) => m.clientGeneratedId);
       expect(optimisticMsg).toBeDefined();
       if (optimisticMsg) {
         expect(optimisticMsg.text).toBe('Hello!');
         expect(optimisticMsg.status).toBe('sending');
-        expect(optimisticMsg.tempId).toBeDefined();
+        expect(optimisticMsg.clientGeneratedId).toBeDefined();
+        expect(optimisticMsg.optimisticStatus).toBe('pending');
+        expect(result.current.sendingMessages.has(optimisticMsg.clientGeneratedId!)).toBe(true);
+        const metadata = result.current.optimisticMetadata[optimisticMsg.clientGeneratedId!];
+        expect(metadata).toBeDefined();
+        expect(metadata?.status).toBe('pending');
       }
 
       // Wait for completion
@@ -89,6 +106,7 @@ describe('messageStore', () => {
           senderId: 'user1',
           text: 'Hello!',
           status: 'sent',
+          clientGeneratedId: expect.stringMatching(/^client-/),
         })
       );
     });
@@ -171,6 +189,11 @@ describe('messageStore', () => {
 
       expect(failedMsg).toBeDefined();
       expect(result.current.error).toBeDefined();
+      if (failedMsg?.clientGeneratedId) {
+        expect(result.current.retryQueue.has(failedMsg.clientGeneratedId)).toBe(true);
+        const metadata = result.current.optimisticMetadata[failedMsg.clientGeneratedId];
+        expect(metadata?.status).toBe('failed');
+      }
 
       // Verify console.error was called
       expect(console.error).toHaveBeenCalledWith('Error sending message:', expect.any(Error));
@@ -282,9 +305,11 @@ describe('messageStore', () => {
       const { addDoc, updateDoc, getDoc, collection, doc, serverTimestamp } = require('firebase/firestore');
 
       // Setup: Create a failed message first
+      const enqueuedAt = Date.now();
       const failedMessage = {
         id: 'temp-123',
         tempId: 'temp-123',
+        clientGeneratedId: 'temp-123',
         chatId: 'chat1',
         senderId: 'user1',
         text: 'Failed message',
@@ -293,6 +318,9 @@ describe('messageStore', () => {
         readBy: ['user1'],
         error: 'No internet connection',
         type: 'text' as const,
+        optimisticStatus: 'failed' as const,
+        optimisticEnqueuedAt: enqueuedAt,
+        retryCount: 0,
       };
 
       const { result } = renderHook(() => useMessageStore());
@@ -303,7 +331,25 @@ describe('messageStore', () => {
           messages: {
             chat1: [failedMessage],
           },
+          messageEntities: {
+            [failedMessage.id]: failedMessage,
+          },
+          messageIdsByChat: {
+            chat1: [failedMessage.id],
+          },
           retryQueue: new Set(['temp-123']),
+          optimisticMetadata: {
+            'temp-123': {
+              clientGeneratedId: 'temp-123',
+              chatId: 'chat1',
+              status: 'failed' as const,
+              enqueuedAt,
+              retryCount: 0,
+            },
+          },
+          optimisticIdMap: {
+            'temp-123': 'temp-123',
+          },
         });
       });
 
@@ -347,17 +393,26 @@ describe('messageStore', () => {
           senderId: 'user1',
           text: 'Failed message',
           status: 'sent',
+          clientGeneratedId: 'temp-123',
         })
       );
 
       // Verify message is removed from sendingMessages after success
       expect(result.current.sendingMessages.has('temp-123')).toBe(false);
+      const reconciledMessage = result.current.messageEntities['real-msg-123'];
+      expect(reconciledMessage?.clientGeneratedId).toBe('temp-123');
+      expect(reconciledMessage?.optimisticStatus).toBe('confirmed');
+      const metadata = result.current.optimisticMetadata['temp-123'];
+      expect(metadata?.status).toBe('confirmed');
+      expect(result.current.retryQueue.has('temp-123')).toBe(false);
     });
 
     it('should update UI state immediately when retry is initiated', async () => {
+      const enqueuedAt = Date.now();
       const failedMessage = {
         id: 'temp-456',
         tempId: 'temp-456',
+        clientGeneratedId: 'temp-456',
         chatId: 'chat1',
         senderId: 'user1',
         text: 'Test message',
@@ -366,6 +421,9 @@ describe('messageStore', () => {
         readBy: ['user1'],
         error: 'Network error',
         type: 'text' as const,
+        optimisticStatus: 'failed' as const,
+        optimisticEnqueuedAt: enqueuedAt,
+        retryCount: 1,
       };
 
       const { result } = renderHook(() => useMessageStore());
@@ -376,7 +434,25 @@ describe('messageStore', () => {
           messages: {
             chat1: [failedMessage],
           },
+          messageEntities: {
+            [failedMessage.id]: failedMessage,
+          },
+          messageIdsByChat: {
+            chat1: [failedMessage.id],
+          },
           retryQueue: new Set(['temp-456']),
+          optimisticMetadata: {
+            'temp-456': {
+              clientGeneratedId: 'temp-456',
+              chatId: 'chat1',
+              status: 'failed' as const,
+              enqueuedAt,
+              retryCount: 1,
+            },
+          },
+          optimisticIdMap: {
+            'temp-456': 'temp-456',
+          },
         });
       });
 
@@ -413,6 +489,7 @@ describe('messageStore', () => {
       // This is what the UI needs to show the loading state
       const updatedMessage = result.current.messages.chat1[0];
       expect(updatedMessage.status).toBe('sending');
+      expect(updatedMessage.optimisticStatus).toBe('pending');
       expect(updatedMessage.error).toBeUndefined();
 
       // Now wait for completion

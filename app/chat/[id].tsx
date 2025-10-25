@@ -8,19 +8,34 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  LayoutChangeEvent,
 } from 'react-native';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { firestore } from '@/lib/firebase/config';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useMessageStore } from '@/lib/store/messageStore';
+import { useChatMessageView } from '@/lib/store/messageSelectors';
 import { useChatStore } from '@/lib/store/chatStore';
 import MessageBubble from '@/components/messages/MessageBubble';
 import TypingIndicator from '@/components/messages/TypingIndicator';
 import AIInsightCard from '@/components/messages/AIInsightCard';
 import BackButton from '@/components/navigation/BackButton';
+import { MessageRow } from '@/types/messageRow';
+
+const estimateRowHeight = (row: MessageRow): number => {
+  switch (row.type) {
+    case 'day-header':
+      return 40;
+    case 'unread-separator':
+      return 56;
+    case 'message':
+    default:
+      return 96;
+  }
+};
 
 export default function ChatScreen() {
   const { id: chatId } = useLocalSearchParams<{ id: string }>();
@@ -28,7 +43,6 @@ export default function ChatScreen() {
   const user = useAuthStore((state) => state.user);
 
   // Use proper Zustand selectors for reliable re-renders
-  const messages = useMessageStore((state) => state.messages);
   const subscribeToMessages = useMessageStore((state) => state.subscribeToMessages);
   const loadOlderMessages = useMessageStore((state) => state.loadOlderMessages);
   const hasMoreMessages = useMessageStore((state) => state.hasMoreMessages);
@@ -47,26 +61,60 @@ export default function ChatScreen() {
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true); // Track if user is at bottom of chat
   const [newMessageCount, setNewMessageCount] = useState(0); // Count of new messages when scrolled up
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<MessageRow>>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const markedAsReadRef = useRef<Set<string>>(new Set()); // Track which messages we've already marked as read
-  const previousMessageCountRef = useRef(0); // Track previous message count for new message detection
-  const hasInitiallyScrolledRef = useRef(false); // Track if we've done initial scroll to bottom
+  const previousMessageIdsRef = useRef<string[]>([]); // Track previous message ids for new message detection
+  const initialLoadRef = useRef(true);
 
-  const chatMessages = messages[chatId] || [];
+  const resolvedChatId = chatId ?? '__missing__';
+  const {
+    rows: messageRows,
+    messages: chatMessages,
+    unreadCount,
+  } = useChatMessageView(resolvedChatId, user?.uid);
+  const loadingOlderForChat = chatId ? loadingOlder[chatId] : false;
+  const hasMoreForChat = chatId ? hasMoreMessages[chatId] : false;
+  const rowHeightsRef = useRef<Map<string, number>>(new Map());
+  const [layoutVersion, setLayoutVersion] = useState(0);
+
+  const handleRowLayout = (rowId: string) => (event: LayoutChangeEvent) => {
+    const { height } = event.nativeEvent.layout;
+    if (height <= 0) return;
+    const cached = rowHeightsRef.current.get(rowId);
+    if (cached !== height) {
+      rowHeightsRef.current.set(rowId, height);
+      setLayoutVersion((version) => version + 1);
+    }
+  };
+
+  const layoutMap = useMemo(() => {
+    const offsets = new Map<string, number>();
+    const lengths = new Map<string, number>();
+    let runningOffset = 0;
+
+    messageRows.forEach((row) => {
+      const length = rowHeightsRef.current.get(row.id) ?? estimateRowHeight(row);
+      lengths.set(row.id, length);
+      offsets.set(row.id, runningOffset);
+      runningOffset += length;
+    });
+
+    return { offsets, lengths };
+  }, [messageRows, layoutVersion]);
+
+  const getItemLayout = (_data: MessageRow[] | null | undefined, index: number) => {
+    const row = messageRows[index];
+    if (!row) {
+      return { length: 0, offset: 0, index };
+    }
+    const length = layoutMap.lengths.get(row.id) ?? estimateRowHeight(row);
+    const offset = layoutMap.offsets.get(row.id) ?? 0;
+    return { length, offset, index };
+  };
 
   // Get current chat details
   const currentChat = chats.find((chat) => chat.id === chatId);
-
-  // Find the first unread message for the separator
-  const firstUnreadIndex = chatMessages.findIndex(
-    (msg) => msg.senderId !== user?.uid && !msg.readBy.includes(user?.uid || '')
-  );
-
-  // Count unread messages
-  const unreadCount = chatMessages.filter(
-    (msg) => msg.senderId !== user?.uid && !msg.readBy.includes(user?.uid || '')
-  ).length;
 
   // Get chat display name
   const getChatDisplayName = () => {
@@ -92,27 +140,23 @@ export default function ChatScreen() {
 
   // Handle scroll position tracking
   const handleScroll = (event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    const distanceFromTop = contentOffset.y;
+    const { contentOffset } = event.nativeEvent;
+    const atBottomNow = contentOffset.y <= 32;
 
-    // Consider "at bottom" if within 100px
-    const atBottom = distanceFromBottom < 100;
-
-    if (atBottom && !isAtBottom) {
-      // Reached bottom - clear new message count
+    if (atBottomNow && !isAtBottom) {
       setIsAtBottom(true);
       setNewMessageCount(0);
-    } else if (!atBottom && isAtBottom) {
-      // Scrolled away from bottom
+    } else if (!atBottomNow && isAtBottom) {
       setIsAtBottom(false);
     }
+  };
 
-    // Load older messages when near top
-    if (distanceFromTop < 500 && hasMoreMessages[chatId] && !loadingOlder[chatId]) {
-      console.log('📜 [ChatScreen] Near top - loading older messages');
-      loadOlderMessages(chatId);
+  const handleEndReached = () => {
+    if (!chatId || !hasMoreForChat || loadingOlderForChat) {
+      return;
     }
+    console.log('📜 [ChatScreen] Near top - loading older messages');
+    loadOlderMessages(chatId);
   };
 
   // Subscribe to other user's online status (one-on-one chats only)
@@ -195,76 +239,52 @@ export default function ChatScreen() {
   // Clear state when switching chats
   useEffect(() => {
     markedAsReadRef.current.clear();
-    previousMessageCountRef.current = 0;
-    hasInitiallyScrolledRef.current = false;
+    previousMessageIdsRef.current = [];
+    initialLoadRef.current = true;
     setIsAtBottom(true);
     setNewMessageCount(0);
   }, [chatId]);
 
-  // WhatsApp-style instant scroll to bottom on content render
-  const handleContentSizeChange = (width: number, height: number) => {
-    if (!hasInitiallyScrolledRef.current && chatMessages.length > 0) {
-      console.log('📜 [ChatScreen] Content size changed, height:', height);
-
-      // WhatsApp pattern: Scroll immediately to a very large offset
-      // This ensures we reach the absolute bottom regardless of dynamic heights
-      flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
-
-      // Also try scrollToEnd as backup (some RN versions work better with one or the other)
-      setTimeout(() => {
-        flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
-      }, 50);
-
-      setTimeout(() => {
-        flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
-        hasInitiallyScrolledRef.current = true;
-        previousMessageCountRef.current = chatMessages.length;
-        console.log('✅ [ChatScreen] Multiple scroll attempts complete');
-      }, 150);
-    }
+  const scrollToBottom = (animated = true) => {
+    if (!flatListRef.current) return;
+    flatListRef.current.scrollToOffset({ offset: 0, animated });
+    setIsAtBottom(true);
+    setNewMessageCount(0);
   };
 
-  // Smart auto-scroll: only scroll if at bottom OR own message (AFTER initial scroll)
+  // Smart auto-scroll: only scroll if at bottom OR own message
   useEffect(() => {
-    // Only run this after initial scroll is complete
-    if (!hasInitiallyScrolledRef.current) {
+    if (chatMessages.length === 0) {
+      previousMessageIdsRef.current = [];
       return;
     }
 
-    // Check if new message arrived
-    if (chatMessages.length > previousMessageCountRef.current) {
-      const newMessage = chatMessages[chatMessages.length - 1];
-      const isOwnMessage = newMessage?.senderId === user?.uid;
+    const messageIds = chatMessages.map((msg) => msg.id);
 
-      console.log('📜 [ChatScreen] New message detected:', {
-        isAtBottom,
-        isOwnMessage,
-        messageFrom: isOwnMessage ? 'self' : 'other',
-      });
-
-      if (isAtBottom || isOwnMessage) {
-        // Auto-scroll if at bottom OR it's our own message
-        console.log('📜 [ChatScreen] Auto-scrolling to bottom for new message');
-
-        // Multiple scroll attempts to ensure we reach bottom (same as initial load)
-        flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-
-        setTimeout(() => {
-          flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-        }, 50);
-
-        setTimeout(() => {
-          flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-        }, 150);
-      } else {
-        // Increment new message count for indicator
-        console.log('📜 [ChatScreen] User scrolled up - showing new message indicator');
-        setNewMessageCount((prev) => prev + 1);
-      }
-
-      previousMessageCountRef.current = chatMessages.length;
+    if (initialLoadRef.current) {
+      previousMessageIdsRef.current = messageIds;
+      initialLoadRef.current = false;
+      return;
     }
-  }, [chatMessages.length, isAtBottom, user?.uid]);
+
+    const previousIds = previousMessageIdsRef.current;
+    const previousSet = new Set(previousIds);
+    const newIds = messageIds.filter((id) => !previousSet.has(id));
+
+    if (newIds.length > 0) {
+      const newMessages = chatMessages.filter((msg) => newIds.includes(msg.id));
+      const hasOwnMessage = newMessages.some((msg) => msg.senderId === user?.uid);
+      const newFromOthers = newMessages.filter((msg) => msg.senderId !== user?.uid);
+
+      if (hasOwnMessage || isAtBottom) {
+        scrollToBottom();
+      } else if (newFromOthers.length > 0) {
+        setNewMessageCount((prev) => prev + newFromOthers.length);
+      }
+    }
+
+    previousMessageIdsRef.current = messageIds;
+  }, [chatMessages, isAtBottom, user?.uid]);
 
   // Handle typing indicator
   const handleTextChange = (text: string) => {
@@ -291,7 +311,7 @@ export default function ChatScreen() {
   };
 
   const handleSend = async () => {
-    if (!user || !inputText.trim()) return;
+    if (!user || !chatId || !inputText.trim()) return;
 
     const messageText = inputText.trim();
     setInputText('');
@@ -306,17 +326,8 @@ export default function ChatScreen() {
     try {
       await sendMessage(chatId, user.uid, messageText);
 
-      // ALWAYS scroll to bottom after sending message (multiple attempts)
       console.log('📜 [ChatScreen] Scrolling to bottom after sending message');
-      flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-
-      setTimeout(() => {
-        flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-      }, 50);
-
-      setTimeout(() => {
-        flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-      }, 150);
+      scrollToBottom();
     } catch (error) {
       console.error('Failed to send message:', error);
     }
@@ -395,55 +406,73 @@ export default function ChatScreen() {
       >
         <FlatList
           ref={flatListRef}
-          data={chatMessages}
-          renderItem={({ item, index }) => {
-            const shouldShowSeparator = index === firstUnreadIndex && firstUnreadIndex !== -1;
+          data={messageRows}
+          inverted
+          renderItem={({ item }) => {
+            if (item.type === 'day-header') {
+              return (
+                <View style={styles.dayHeader} onLayout={handleRowLayout(item.id)}>
+                  <View style={styles.dayHeaderLine} />
+                  <Text style={styles.dayHeaderText}>{item.label}</Text>
+                  <View style={styles.dayHeaderLine} />
+                </View>
+              );
+            }
+
+            if (item.type === 'unread-separator') {
+              return (
+                <View style={styles.unreadSeparator} onLayout={handleRowLayout(item.id)}>
+                  <View style={styles.unreadLine} />
+                  <Text style={styles.unreadText}>
+                    {item.unreadCount} UNREAD MESSAGE{item.unreadCount !== 1 ? 'S' : ''}
+                  </Text>
+                  <View style={styles.unreadLine} />
+                </View>
+              );
+            }
+
+            const isOwnMessage = item.message.senderId === user?.uid;
 
             return (
-              <>
-                {/* Show "Unread Messages" separator before first unread message */}
-                {shouldShowSeparator && (
-                  <View style={styles.unreadSeparator}>
-                    <View style={styles.unreadLine} />
-                    <Text style={styles.unreadText}>
-                      {unreadCount} UNREAD MESSAGE{unreadCount !== 1 ? 'S' : ''}
-                    </Text>
-                    <View style={styles.unreadLine} />
-                  </View>
-                )}
+              <View style={styles.messageRowWrapper} onLayout={handleRowLayout(item.id)}>
                 <MessageBubble
-                  message={item}
-                  isOwnMessage={item.senderId === user?.uid}
+                  message={item.message}
+                  isOwnMessage={isOwnMessage}
                   chatParticipants={currentChat?.participants}
                   currentUserId={user?.uid}
+                  isGroupTop={item.isGroupTop}
+                  isGroupBottom={item.isGroupBottom}
+                  isOptimistic={item.isOptimistic}
                 />
-                {/* Show AI insight card if message has AI extraction */}
-                {item.aiExtraction && (
+                {item.message.aiExtraction && (
                   <AIInsightCard
-                    message={item}
+                    message={item.message}
                     chatId={chatId!}
                     currentUserId={user?.uid || ''}
                     onNavigate={handleInsightAction}
                     onSendMessage={sendMessage}
                   />
                 )}
-              </>
+              </View>
             );
           }}
-          keyExtractor={(item) => item.id || item.tempId || ''}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messageList}
           onScroll={handleScroll}
           scrollEventThrottle={16}
-          onContentSizeChange={handleContentSizeChange}
-          initialNumToRender={50}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.1}
+          getItemLayout={getItemLayout}
+          initialNumToRender={40}
           maxToRenderPerBatch={20}
           windowSize={10}
           removeClippedSubviews={false}
           maintainVisibleContentPosition={{
             minIndexForVisible: 0,
+            autoscrollToTopThreshold: 120,
           }}
-          ListHeaderComponent={
-            loadingOlder[chatId] ? (
+          ListFooterComponent={
+            loadingOlderForChat ? (
               <View style={styles.loadingOlderContainer}>
                 <Text style={styles.loadingOlderText}>Loading older messages...</Text>
               </View>
@@ -461,20 +490,7 @@ export default function ChatScreen() {
         {!isAtBottom && newMessageCount > 0 && (
           <TouchableOpacity
             style={styles.newMessageIndicator}
-            onPress={() => {
-              // Multiple scroll attempts for reliable bottom positioning
-              flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-
-              setTimeout(() => {
-                flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-              }, 50);
-
-              setTimeout(() => {
-                flatListRef.current?.scrollToOffset({ offset: 999999, animated: true });
-                setNewMessageCount(0);
-                setIsAtBottom(true);
-              }, 150);
-            }}
+            onPress={() => scrollToBottom()}
             activeOpacity={0.7}
           >
             <Text style={styles.newMessageText}>
@@ -620,6 +636,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#8E8E93',
     fontStyle: 'italic',
+  },
+  messageRowWrapper: {
+    paddingHorizontal: 0,
+  },
+  dayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 16,
+    paddingHorizontal: 16,
+  },
+  dayHeaderLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#D8D8DC',
+  },
+  dayHeaderText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    color: '#6E6E73',
+    textTransform: 'uppercase',
   },
   unreadSeparator: {
     flexDirection: 'row',

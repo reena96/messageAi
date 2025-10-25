@@ -15,6 +15,7 @@ import {
   isDeadlineOverdue,
   getPriorityColor,
 } from '@/lib/utils/quickActions';
+import { aiInsightCardDebug } from '@/lib/utils/debug';
 
 interface AIInsightCardProps {
   message: Message;
@@ -46,7 +47,7 @@ export default function AIInsightCard({
   const { calendarEvents, decisions, priority, rsvp, deadlines } = aiExtraction;
 
   // Debug logging
-  if (rsvp || deadlines) {
+  if (__DEV__ && aiInsightCardDebug && (rsvp || deadlines)) {
     console.log('[AIInsightCard] Rendering cards:', {
       rsvp,
       deadlines,

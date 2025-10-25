@@ -18,10 +18,14 @@ export function useNetworkStatus() {
           // Find the chat for this message
           for (const [chatId, chatMessages] of Object.entries(messages)) {
             const message = chatMessages.find(
-              (m) => m.id === messageId || m.tempId === messageId
+              (m) =>
+                m.clientGeneratedId === messageId ||
+                m.id === messageId ||
+                m.tempId === messageId
             );
             if (message) {
-              retryMessage(chatId, messageId).catch((error) => {
+              const retryKey = message.clientGeneratedId || message.id;
+              retryMessage(chatId, retryKey).catch((error) => {
                 console.error('Retry failed:', error);
               });
               break;
