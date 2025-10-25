@@ -1,4 +1,6 @@
 import { CalendarEvent } from '@/lib/ai/calendar';
+import { Decision } from '@/lib/ai/decisions';
+import { Priority } from '@/lib/ai/priority';
 
 export interface Message {
   id: string;
@@ -22,6 +24,8 @@ export interface Message {
   // AI extraction
   aiExtraction?: {
     calendarEvents?: CalendarEvent[];
+    decisions?: Decision[];
+    priority?: Priority;
     extractedAt?: Date;
   };
 }

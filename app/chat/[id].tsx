@@ -19,6 +19,8 @@ import { useMessageStore } from '@/lib/store/messageStore';
 import { useChatStore } from '@/lib/store/chatStore';
 import MessageBubble from '@/components/messages/MessageBubble';
 import TypingIndicator from '@/components/messages/TypingIndicator';
+import AIInsightCard from '@/components/messages/AIInsightCard';
+import BackButton from '@/components/navigation/BackButton';
 
 export default function ChatScreen() {
   const { id: chatId } = useLocalSearchParams<{ id: string }>();
@@ -320,6 +322,20 @@ export default function ChatScreen() {
     }
   };
 
+  // Handle navigation from AI insight cards
+  const handleInsightAction = (action: { type: 'calendar' | 'decisions'; data?: any }) => {
+    console.log('🎯 [ChatScreen] Insight action:', action);
+
+    if (action.type === 'calendar') {
+      // Navigate to Calendar tab, passing source chat for back navigation
+      router.push(`/(tabs)/calendar?fromChat=${chatId}`);
+    } else if (action.type === 'decisions') {
+      // Navigate to Decisions tab with filter and source chat
+      const filter = action.data?.filter || 'all';
+      router.push(`/(tabs)/decisions?filter=${filter}&fromChat=${chatId}`);
+    }
+  };
+
   // Format last seen
   const getLastSeenText = () => {
     if (otherUserOnline) return 'online';
@@ -368,6 +384,7 @@ export default function ChatScreen() {
           ),
           headerBackTitle: 'Back',
           headerTintColor: '#007AFF',
+          headerLeft: () => <BackButton />,
         }}
       />
 
@@ -400,6 +417,13 @@ export default function ChatScreen() {
                   chatParticipants={currentChat?.participants}
                   currentUserId={user?.uid}
                 />
+                {/* Show AI insight card if message has AI extraction */}
+                {item.aiExtraction && (
+                  <AIInsightCard
+                    message={item}
+                    onNavigate={handleInsightAction}
+                  />
+                )}
               </>
             );
           }}

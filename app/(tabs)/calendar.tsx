@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { router } from 'expo-router';
+import { router, useNavigation, Stack, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, where, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { firestore } from '@/lib/firebase/config';
 import { useAuthStore } from '@/lib/store/authStore';
 import { CalendarEvent } from '@/lib/ai/calendar';
+import BackButton from '@/components/navigation/BackButton';
+
+// Debug flag for calendar logs
+const CALENDAR_DEBUG = false;
 
 interface CalendarEventWithContext {
   event: CalendarEvent;
@@ -17,8 +21,29 @@ interface CalendarEventWithContext {
 
 export default function CalendarScreen() {
   const { user } = useAuthStore();
+  const navigation = useNavigation();
+  const params = useLocalSearchParams<{ fromChat?: string }>();
   const [events, setEvents] = useState<CalendarEventWithContext[]>([]);
   const [loading, setLoading] = useState(true);
+  const [canGoBack, setCanGoBack] = useState(false);
+
+  // Check if we can go back (navigated from another screen)
+  useEffect(() => {
+    const navState = navigation.getState();
+    // Can go back if there's history beyond the initial tab navigation
+    setCanGoBack(navState ? navState.routes.length > 1 : false);
+  }, [navigation]);
+
+  // Custom back handler to return to source chat
+  const handleBack = () => {
+    if (params.fromChat) {
+      // Navigate back to the specific chat
+      router.push(`/chat/${params.fromChat}`);
+    } else {
+      // Default back behavior
+      router.back();
+    }
+  };
 
   useEffect(() => {
     if (!user?.uid) {
@@ -26,7 +51,7 @@ export default function CalendarScreen() {
       return;
     }
 
-    console.log('[Calendar] 📅 Loading calendar events for user:', user.uid);
+    if (CALENDAR_DEBUG) console.log('[Calendar] 📅 Loading calendar events for user:', user.uid);
     const unsubscribes: Unsubscribe[] = [];
 
     // First, get all chats for this user
@@ -37,7 +62,7 @@ export default function CalendarScreen() {
     );
 
     const unsubscribeChats = onSnapshot(chatsQuery, (chatsSnapshot) => {
-      console.log('[Calendar] 📊 Found', chatsSnapshot.docs.length, 'chats');
+      if (CALENDAR_DEBUG) console.log('[Calendar] 📊 Found', chatsSnapshot.docs.length, 'chats');
 
       // Unsubscribe from previous message listeners
       unsubscribes.forEach(unsub => unsub());
@@ -95,7 +120,7 @@ export default function CalendarScreen() {
               return dateA.getTime() - dateB.getTime();
             });
 
-            console.log('[Calendar] ✅ Loaded', allEvents.length, 'calendar events');
+            if (CALENDAR_DEBUG) console.log('[Calendar] ✅ Loaded', allEvents.length, 'calendar events');
             setEvents(allEvents);
             setLoading(false);
           }
@@ -112,9 +137,11 @@ export default function CalendarScreen() {
   }, [user?.uid]);
 
   const navigateToMessage = (chatId: string, messageId: string) => {
-    console.log('[Calendar] 📍 Navigating to chat:', chatId, 'message:', messageId);
+    if (CALENDAR_DEBUG) console.log('[Calendar] 📍 Navigating to chat:', chatId, 'message:', messageId);
+    // Use router.push with proper navigation
+    // The back button will automatically return to this calendar tab
     router.push(`/chat/${chatId}`);
-    // TODO: In future, scroll to specific message
+    // TODO: In future, scroll to specific message using messageId
   };
 
   const formatDate = (dateString: string) => {
@@ -217,12 +244,23 @@ export default function CalendarScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Calendar</Text>
-        <Text style={styles.headerSubtitle}>
-          {events.length} {events.length === 1 ? 'event' : 'events'}
-        </Text>
-      </View>
+      <Stack.Screen
+        options={{
+          headerShown: canGoBack,
+          headerTitle: 'Calendar',
+          headerLeft: canGoBack ? () => <BackButton onPress={handleBack} /> : undefined,
+          headerTintColor: '#007AFF',
+        }}
+      />
+
+      {!canGoBack && (
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Calendar</Text>
+          <Text style={styles.headerSubtitle}>
+            {events.length} {events.length === 1 ? 'event' : 'events'}
+          </Text>
+        </View>
+      )}
 
       <FlatList
         data={events}

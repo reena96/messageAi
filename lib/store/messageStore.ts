@@ -22,6 +22,8 @@ import { firestore } from '../firebase/config';
 import { Message } from '@/types/message';
 import { performanceMonitor } from '@/lib/utils/performance';
 import { extractCalendarEvents } from '@/lib/ai/calendar';
+import { extractDecisions } from '@/lib/ai/decisions';
+import { detectPriority } from '@/lib/ai/priority';
 
 interface MessageState {
   messages: { [chatId: string]: Message[] }; // Keyed by chatId
@@ -81,7 +83,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               imageUrl: data.imageUrl,
               type: data.type || 'text',
               aiExtraction: data.aiExtraction ? {
-                calendarEvents: data.aiExtraction.calendarEvents || [],
+                calendarEvents: data.aiExtraction.calendarEvents || undefined,
+                decisions: data.aiExtraction.decisions || undefined,
+                priority: data.aiExtraction.priority || undefined,
                 extractedAt: data.aiExtraction.extractedAt?.toDate(),
               } : undefined,
             };
@@ -189,7 +193,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           imageUrl: data.imageUrl,
           type: data.type || 'text',
           aiExtraction: data.aiExtraction ? {
-            calendarEvents: data.aiExtraction.calendarEvents || [],
+            calendarEvents: data.aiExtraction.calendarEvents || undefined,
+            decisions: data.aiExtraction.decisions || undefined,
+            priority: data.aiExtraction.priority || undefined,
             extractedAt: data.aiExtraction.extractedAt?.toDate(),
           } : undefined,
         };
@@ -299,28 +305,53 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const docRef = await addDoc(messagesRef, messageData);
       const messageId = docRef.id;
 
-      // 3.5. Trigger AI calendar extraction (fire-and-forget, non-blocking)
+      // 3.5. Trigger AI multi-feature extraction (fire-and-forget, non-blocking)
+      // Run calendar, decision, and priority extraction in parallel
       // This runs in the background and doesn't block the message send flow
-      console.log('[AI] 🚀 Starting calendar extraction for message:', messageId);
-      extractCalendarEvents(text)
-        .then((events) => {
-          console.log('[AI] ✅ Extraction completed, found events:', events.length);
-          if (events.length > 0) {
-            console.log(`[AI] 📅 Extracted ${events.length} calendar event(s):`, events);
-            console.log(`[AI] 💾 Updating message ${messageId} with extraction data`);
-            // Update the message document with AI extraction data
+      console.log('[AI] 🚀 Starting multi-feature extraction for message:', messageId);
+      Promise.all([
+        extractCalendarEvents(text),
+        extractDecisions(text),
+        detectPriority(text),
+      ])
+        .then(([calendarEvents, decisions, priority]) => {
+          console.log('[AI] ✅ Multi-feature extraction completed');
+          console.log(`[AI] 📅 Calendar events: ${calendarEvents.length}`);
+          console.log(`[AI] ✅ Decisions: ${decisions.length}`);
+          console.log(`[AI] 🎯 Priority: ${priority?.level || 'none'}`);
+
+          // Build AI extraction object with all features
+          const aiExtraction: any = {
+            extractedAt: serverTimestamp(),
+          };
+
+          if (calendarEvents.length > 0) {
+            aiExtraction.calendarEvents = calendarEvents;
+            console.log(`[AI] 📅 Extracted ${calendarEvents.length} calendar event(s)`);
+          }
+
+          if (decisions.length > 0) {
+            aiExtraction.decisions = decisions;
+            console.log(`[AI] ✅ Extracted ${decisions.length} decision(s)`);
+          }
+
+          if (priority) {
+            aiExtraction.priority = priority;
+            console.log(`[AI] 🎯 Priority: ${priority.level} (urgency: ${priority.urgency})`);
+          }
+
+          // Only update if we have at least one extraction result
+          if (calendarEvents.length > 0 || decisions.length > 0 || priority) {
+            console.log(`[AI] 💾 Updating message ${messageId} with AI extraction data`);
             const messageRef = doc(firestore, 'chats', chatId, 'messages', messageId);
-            return updateDoc(messageRef, {
-              'aiExtraction.calendarEvents': events,
-              'aiExtraction.extractedAt': serverTimestamp(),
-            });
+            return updateDoc(messageRef, { aiExtraction });
           } else {
-            console.log('[AI] ℹ️ No calendar events found in message');
+            console.log('[AI] ℹ️ No AI features extracted from message');
           }
         })
         .catch((err) => {
           // Log error but don't fail the message send
-          console.error('[AI] ❌ Calendar extraction failed (non-critical):', err);
+          console.error('[AI] ❌ Multi-feature extraction failed (non-critical):', err);
           console.error('[AI] Error details:', err.message, err.stack);
         });
 
