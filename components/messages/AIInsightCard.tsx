@@ -290,16 +290,18 @@ function renderRSVPCard(
       </View>
     );
   } else if (rsvp.isResponse && rsvp.response) {
-    // Response card - simple acknowledgment
+    // Response card - compact acknowledgment directly below message
     const responseColor = rsvp.response === 'yes' ? '#34C759' : rsvp.response === 'no' ? '#FF3B30' : '#FF9500';
     const responseText = rsvp.response === 'yes' ? 'Yes' : rsvp.response === 'no' ? 'No' : 'Maybe';
     const responseIcon = rsvp.response === 'yes' ? 'checkmark-circle' : rsvp.response === 'no' ? 'close-circle' : 'help-circle';
 
     return (
-      <View style={[styles.card, { borderLeftColor: responseColor }]}>
+      <View style={[styles.card, styles.responseCard, { borderLeftColor: responseColor }]}>
         <View style={styles.cardHeader}>
-          <Ionicons name={responseIcon} size={18} color={responseColor} />
-          <Text style={[styles.cardTitle, { color: responseColor }]}>RSVP: {responseText}</Text>
+          <Ionicons name={responseIcon} size={16} color={responseColor} />
+          <Text style={[styles.cardTitle, styles.responseCardTitle, { color: responseColor }]}>
+            RSVP: {responseText}
+          </Text>
         </View>
       </View>
     );
@@ -414,6 +416,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#F2F2F7',
     borderLeftWidth: 3,
+  },
+  // Compact RSVP response card - tight to message
+  responseCard: {
+    marginTop: 4,
+    marginBottom: 2,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  responseCardTitle: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   calendarCard: {
     borderLeftColor: '#007AFF',
