@@ -234,7 +234,7 @@ function renderRSVPCard(
   };
 
   if (rsvp.isInvitation) {
-    // Invitation card with RSVP buttons
+    // Invitation card with RSVP buttons - show to everyone
     return (
       <View style={[styles.card, styles.rsvpCard]}>
         <View style={styles.cardHeader}>
@@ -284,19 +284,17 @@ function renderRSVPCard(
         </View>
       </View>
     );
-  } else if (rsvp.isResponse) {
-    // Response card (user already responded)
+  } else if (rsvp.isResponse && rsvp.response) {
+    // Response card - simple acknowledgment
     const responseColor = rsvp.response === 'yes' ? '#34C759' : rsvp.response === 'no' ? '#FF3B30' : '#FF9500';
     const responseText = rsvp.response === 'yes' ? 'Yes' : rsvp.response === 'no' ? 'No' : 'Maybe';
+    const responseIcon = rsvp.response === 'yes' ? 'checkmark-circle' : rsvp.response === 'no' ? 'close-circle' : 'help-circle';
 
     return (
       <View style={[styles.card, { borderLeftColor: responseColor }]}>
         <View style={styles.cardHeader}>
-          <Ionicons name="checkmark-done" size={18} color={responseColor} />
-          <Text style={[styles.cardTitle, { color: responseColor }]}>RSVP Response</Text>
-        </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.rsvpResponseText}>You responded: {responseText}</Text>
+          <Ionicons name={responseIcon} size={18} color={responseColor} />
+          <Text style={[styles.cardTitle, { color: responseColor }]}>RSVP: {responseText}</Text>
         </View>
       </View>
     );
