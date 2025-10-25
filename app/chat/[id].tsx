@@ -411,21 +411,43 @@ export default function ChatScreen() {
                     <View style={styles.unreadLine} />
                   </View>
                 )}
-                <MessageBubble
-                  message={item}
-                  isOwnMessage={item.senderId === user?.uid}
-                  chatParticipants={currentChat?.participants}
-                  currentUserId={user?.uid}
-                />
-                {/* Show AI insight card if message has AI extraction */}
-                {item.aiExtraction && (
-                  <AIInsightCard
-                    message={item}
-                    chatId={chatId!}
-                    currentUserId={user?.uid || ''}
-                    onNavigate={handleInsightAction}
-                    onSendMessage={sendMessage}
-                  />
+                {/* RSVP response cards appear inline to the left */}
+                {item.aiExtraction?.rsvp?.isResponse ? (
+                  <View style={styles.messageWithRSVP}>
+                    <AIInsightCard
+                      message={item}
+                      chatId={chatId!}
+                      currentUserId={user?.uid || ''}
+                      onNavigate={handleInsightAction}
+                      onSendMessage={sendMessage}
+                      inlineMode={true}
+                    />
+                    <MessageBubble
+                      message={item}
+                      isOwnMessage={item.senderId === user?.uid}
+                      chatParticipants={currentChat?.participants}
+                      currentUserId={user?.uid}
+                    />
+                  </View>
+                ) : (
+                  <>
+                    <MessageBubble
+                      message={item}
+                      isOwnMessage={item.senderId === user?.uid}
+                      chatParticipants={currentChat?.participants}
+                      currentUserId={user?.uid}
+                    />
+                    {/* Show AI insight card if message has AI extraction */}
+                    {item.aiExtraction && (
+                      <AIInsightCard
+                        message={item}
+                        chatId={chatId!}
+                        currentUserId={user?.uid || ''}
+                        onNavigate={handleInsightAction}
+                        onSendMessage={sendMessage}
+                      />
+                    )}
+                  </>
                 )}
               </>
             );
@@ -525,6 +547,11 @@ const styles = StyleSheet.create({
   },
   messageList: {
     paddingVertical: 12,
+  },
+  messageWithRSVP: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
   },
   inputContainer: {
     flexDirection: 'row',

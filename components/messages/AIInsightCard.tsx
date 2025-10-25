@@ -22,6 +22,7 @@ interface AIInsightCardProps {
   currentUserId: string;
   onNavigate?: (action: { type: 'calendar' | 'decisions'; data?: any }) => void;
   onSendMessage?: (chatId: string, senderId: string, text: string) => Promise<void>;
+  inlineMode?: boolean; // When true, only render RSVP response inline
 }
 
 /**
@@ -35,6 +36,7 @@ export default function AIInsightCard({
   currentUserId,
   onNavigate,
   onSendMessage,
+  inlineMode = false,
 }: AIInsightCardProps) {
   const { aiExtraction } = message;
 
@@ -52,7 +54,16 @@ export default function AIInsightCard({
       deadlines,
       hasRSVP: rsvp && (rsvp.isInvitation || rsvp.isResponse),
       hasDeadlines: deadlines && deadlines.length > 0,
+      inlineMode,
     });
+  }
+
+  // Inline mode: only render RSVP response
+  if (inlineMode) {
+    if (rsvp && rsvp.isResponse) {
+      return renderRSVPCard(rsvp, chatId, currentUserId, message.senderId, onSendMessage, true);
+    }
+    return null;
   }
 
   // Determine what to show (priority: deadlines > RSVP > calendar > decisions > priority)
@@ -69,8 +80,8 @@ export default function AIInsightCard({
       {/* Deadlines - highest priority for parents */}
       {hasDeadlines && renderDeadlineCard(deadlines![0], chatId, message.id)}
 
-      {/* RSVP - invitations or responses */}
-      {hasRSVP && renderRSVPCard(rsvp!, chatId, currentUserId, message.senderId, onSendMessage)}
+      {/* RSVP - invitations or responses (skip responses in normal mode, they're inline) */}
+      {hasRSVP && !rsvp.isResponse && renderRSVPCard(rsvp!, chatId, currentUserId, message.senderId, onSendMessage, false)}
 
       {/* Calendar events */}
       {hasCalendar && renderCalendarCard(calendarEvents![0], onNavigate)}
@@ -226,7 +237,8 @@ function renderRSVPCard(
   chatId: string,
   currentUserId: string,
   messageSenderId: string,
-  onSendMessage?: (chatId: string, senderId: string, text: string) => Promise<void>
+  onSendMessage?: (chatId: string, senderId: string, text: string) => Promise<void>,
+  isInline: boolean = false
 ) {
   const handleRSVP = (response: 'yes' | 'no' | 'maybe') => {
     if (onSendMessage) {
@@ -290,21 +302,32 @@ function renderRSVPCard(
       </View>
     );
   } else if (rsvp.isResponse && rsvp.response) {
-    // Response card - compact acknowledgment directly below message
+    // Response card - compact badge for inline display or standard card for normal display
     const responseColor = rsvp.response === 'yes' ? '#34C759' : rsvp.response === 'no' ? '#FF3B30' : '#FF9500';
     const responseText = rsvp.response === 'yes' ? 'Yes' : rsvp.response === 'no' ? 'No' : 'Maybe';
     const responseIcon = rsvp.response === 'yes' ? 'checkmark-circle' : rsvp.response === 'no' ? 'close-circle' : 'help-circle';
 
-    return (
-      <View style={[styles.card, styles.responseCard, { borderLeftColor: responseColor }]}>
-        <View style={styles.cardHeader}>
-          <Ionicons name={responseIcon} size={16} color={responseColor} />
-          <Text style={[styles.cardTitle, styles.responseCardTitle, { color: responseColor }]}>
-            RSVP: {responseText}
-          </Text>
+    if (isInline) {
+      // Inline mode: compact badge next to message
+      return (
+        <View style={[styles.inlineRSVPBadge, { backgroundColor: responseColor }]}>
+          <Ionicons name={responseIcon} size={14} color="#FFF" />
+          <Text style={styles.inlineRSVPText}>{responseText}</Text>
         </View>
-      </View>
-    );
+      );
+    } else {
+      // Normal mode: standard card
+      return (
+        <View style={[styles.card, styles.responseCard, { borderLeftColor: responseColor }]}>
+          <View style={styles.cardHeader}>
+            <Ionicons name={responseIcon} size={16} color={responseColor} />
+            <Text style={[styles.cardTitle, styles.responseCardTitle, { color: responseColor }]}>
+              RSVP: {responseText}
+            </Text>
+          </View>
+        </View>
+      );
+    }
   }
 
   return null;
@@ -639,6 +662,21 @@ const styles = StyleSheet.create({
   completedText: {
     fontSize: 12,
     color: '#34C759',
+    fontWeight: '600',
+  },
+  // Inline RSVP badge (appears next to message)
+  inlineRSVPBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+    alignSelf: 'flex-start',
+  },
+  inlineRSVPText: {
+    fontSize: 12,
+    color: '#FFF',
     fontWeight: '600',
   },
 });
