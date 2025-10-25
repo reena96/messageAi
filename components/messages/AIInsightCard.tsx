@@ -45,6 +45,16 @@ export default function AIInsightCard({
 
   const { calendarEvents, decisions, priority, rsvp, deadlines } = aiExtraction;
 
+  // Debug logging
+  if (rsvp || deadlines) {
+    console.log('[AIInsightCard] Rendering cards:', {
+      rsvp,
+      deadlines,
+      hasRSVP: rsvp && (rsvp.isInvitation || rsvp.isResponse),
+      hasDeadlines: deadlines && deadlines.length > 0,
+    });
+  }
+
   // Determine what to show (priority: deadlines > RSVP > calendar > decisions > priority)
   // Show multiple cards if message has multiple important insights
   const hasCalendar = calendarEvents && calendarEvents.length > 0;
