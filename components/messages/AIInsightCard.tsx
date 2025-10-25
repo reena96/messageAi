@@ -5,18 +5,37 @@ import { Message } from '@/types/message';
 import { CalendarEvent } from '@/lib/ai/calendar';
 import { Decision } from '@/lib/ai/decisions';
 import { Priority } from '@/lib/ai/priority';
+import { RSVP } from '@/lib/ai/rsvp';
+import { Deadline } from '@/lib/ai/deadlines';
+import {
+  addToCalendar,
+  markDeadlineComplete,
+  sendRSVPResponse,
+  formatDeadlineDate,
+  isDeadlineOverdue,
+  getPriorityColor,
+} from '@/lib/utils/quickActions';
 
 interface AIInsightCardProps {
   message: Message;
+  chatId: string;
+  currentUserId: string;
   onNavigate?: (action: { type: 'calendar' | 'decisions'; data?: any }) => void;
+  onSendMessage?: (chatId: string, senderId: string, text: string) => Promise<void>;
 }
 
 /**
  * AIInsightCard Component
- * Displays AI-extracted insights (calendar events, decisions, priority) inline in chat
+ * Displays AI-extracted insights (calendar events, decisions, priority, RSVP, deadlines) inline in chat
  * Shows below the message that triggered the extraction
  */
-export default function AIInsightCard({ message, onNavigate }: AIInsightCardProps) {
+export default function AIInsightCard({
+  message,
+  chatId,
+  currentUserId,
+  onNavigate,
+  onSendMessage,
+}: AIInsightCardProps) {
   const { aiExtraction } = message;
 
   // No AI extraction data - don't render anything
@@ -24,70 +43,92 @@ export default function AIInsightCard({ message, onNavigate }: AIInsightCardProp
     return null;
   }
 
-  const { calendarEvents, decisions, priority } = aiExtraction;
+  const { calendarEvents, decisions, priority, rsvp, deadlines } = aiExtraction;
 
-  // Determine what to show (priority: calendar > decisions > priority)
-  // Only show one card per message to avoid clutter
+  // Determine what to show (priority: deadlines > RSVP > calendar > decisions > priority)
+  // Show multiple cards if message has multiple important insights
   const hasCalendar = calendarEvents && calendarEvents.length > 0;
   const hasDecisions = decisions && decisions.length > 0;
   const hasHighPriority = priority && (priority.level === 'critical' || priority.level === 'high');
+  const hasRSVP = rsvp && (rsvp.isInvitation || rsvp.isResponse);
+  const hasDeadlines = deadlines && deadlines.length > 0;
 
-  // Calendar events have highest priority for display
-  if (hasCalendar) {
-    return renderCalendarCard(calendarEvents![0], onNavigate);
-  }
+  // Render cards in priority order (can show multiple)
+  return (
+    <>
+      {/* Deadlines - highest priority for parents */}
+      {hasDeadlines && renderDeadlineCard(deadlines![0], chatId, message.id)}
 
-  // Then decisions
-  if (hasDecisions) {
-    return renderDecisionCard(decisions![0], onNavigate);
-  }
+      {/* RSVP - invitations or responses */}
+      {hasRSVP && renderRSVPCard(rsvp!, chatId, currentUserId, onSendMessage)}
 
-  // Finally, only show priority if it's high or critical
-  if (hasHighPriority) {
-    return renderPriorityCard(priority!, onNavigate);
-  }
+      {/* Calendar events */}
+      {hasCalendar && renderCalendarCard(calendarEvents![0], onNavigate)}
 
-  // Nothing important to show
-  return null;
+      {/* Decisions */}
+      {hasDecisions && renderDecisionCard(decisions![0], onNavigate)}
+
+      {/* Priority - only if high or critical and no other cards shown */}
+      {hasHighPriority && !hasDeadlines && !hasRSVP && !hasCalendar && !hasDecisions &&
+        renderPriorityCard(priority!, onNavigate)}
+    </>
+  );
 }
 
 /**
- * Render calendar event card
+ * Render calendar event card with Add to Calendar button
  */
 function renderCalendarCard(
   event: CalendarEvent,
   onNavigate?: (action: { type: 'calendar' | 'decisions'; data?: any }) => void
 ) {
+  const handleAddToCalendar = () => {
+    addToCalendar(event);
+  };
+
   return (
-    <TouchableOpacity
-      style={[styles.card, styles.calendarCard]}
-      onPress={() => onNavigate?.({ type: 'calendar', data: event })}
-      activeOpacity={0.7}
-    >
-      <View style={styles.cardHeader}>
-        <Ionicons name="calendar" size={18} color="#007AFF" />
-        <Text style={[styles.cardTitle, styles.calendarTitle]}>Calendar Event</Text>
-      </View>
-      <View style={styles.cardContent}>
-        <Text style={styles.eventName}>{event.event}</Text>
-        <View style={styles.eventDetails}>
-          <Text style={styles.eventDetail}>
-            📅 {formatDate(event.date)}
-            {event.time && ` at ${event.time}`}
-          </Text>
-          {event.location && (
-            <Text style={styles.eventDetail}>📍 {event.location}</Text>
+    <View style={[styles.card, styles.calendarCard]}>
+      <TouchableOpacity
+        onPress={() => onNavigate?.({ type: 'calendar', data: event })}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardHeader}>
+          <Ionicons name="calendar" size={18} color="#007AFF" />
+          <Text style={[styles.cardTitle, styles.calendarTitle]}>Calendar Event</Text>
+        </View>
+        <View style={styles.cardContent}>
+          <Text style={styles.eventName}>{event.event}</Text>
+          <View style={styles.eventDetails}>
+            <Text style={styles.eventDetail}>
+              📅 {formatDate(event.date)}
+              {event.time && ` at ${event.time}`}
+            </Text>
+            {event.location && (
+              <Text style={styles.eventDetail}>📍 {event.location}</Text>
+            )}
+          </View>
+          {event.confidence < 0.8 && (
+            <View style={styles.confidenceBadge}>
+              <Text style={styles.confidenceText}>
+                {Math.round(event.confidence * 100)}% confident
+              </Text>
+            </View>
           )}
         </View>
-        {event.confidence < 0.8 && (
-          <View style={styles.confidenceBadge}>
-            <Text style={styles.confidenceText}>
-              {Math.round(event.confidence * 100)}% confident
-            </Text>
-          </View>
-        )}
+      </TouchableOpacity>
+
+      {/* Quick Action: Add to Calendar */}
+      <View style={styles.quickActions}>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.primaryButton]}
+          onPress={handleAddToCalendar}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add-circle-outline" size={16} color="#FFF" />
+          <Text style={styles.actionButtonText}>Add to Calendar</Text>
+        </TouchableOpacity>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 
@@ -163,6 +204,155 @@ function renderPriorityCard(
           </View>
         )}
       </View>
+    </View>
+  );
+}
+
+/**
+ * Render RSVP card (invitation or response)
+ */
+function renderRSVPCard(
+  rsvp: RSVP,
+  chatId: string,
+  currentUserId: string,
+  onSendMessage?: (chatId: string, senderId: string, text: string) => Promise<void>
+) {
+  const handleRSVP = (response: 'yes' | 'no' | 'maybe') => {
+    if (onSendMessage) {
+      sendRSVPResponse(response, chatId, currentUserId, onSendMessage);
+    }
+  };
+
+  if (rsvp.isInvitation) {
+    // Invitation card with RSVP buttons
+    return (
+      <View style={[styles.card, styles.rsvpCard]}>
+        <View style={styles.cardHeader}>
+          <Ionicons name="people" size={18} color="#5856D6" />
+          <Text style={[styles.cardTitle, { color: '#5856D6' }]}>Event Invitation</Text>
+        </View>
+        <View style={styles.cardContent}>
+          {rsvp.event && <Text style={styles.eventName}>{rsvp.event}</Text>}
+          {rsvp.details && <Text style={styles.rsvpDetails}>{rsvp.details}</Text>}
+
+          {/* Show RSVP counts if available */}
+          {rsvp.responses && (
+            <View style={styles.rsvpCounts}>
+              <Text style={styles.rsvpCountText}>
+                {rsvp.responses.yes} Yes • {rsvp.responses.no} No • {rsvp.responses.maybe} Maybe
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Quick Actions: RSVP Buttons */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.yesButton]}
+            onPress={() => handleRSVP('yes')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="checkmark-circle" size={16} color="#FFF" />
+            <Text style={styles.actionButtonText}>Yes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.noButton]}
+            onPress={() => handleRSVP('no')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close-circle" size={16} color="#FFF" />
+            <Text style={styles.actionButtonText}>No</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.maybeButton]}
+            onPress={() => handleRSVP('maybe')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="help-circle" size={16} color="#FFF" />
+            <Text style={styles.actionButtonText}>Maybe</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  } else if (rsvp.isResponse) {
+    // Response card (user already responded)
+    const responseColor = rsvp.response === 'yes' ? '#34C759' : rsvp.response === 'no' ? '#FF3B30' : '#FF9500';
+    const responseText = rsvp.response === 'yes' ? 'Yes' : rsvp.response === 'no' ? 'No' : 'Maybe';
+
+    return (
+      <View style={[styles.card, { borderLeftColor: responseColor }]}>
+        <View style={styles.cardHeader}>
+          <Ionicons name="checkmark-done" size={18} color={responseColor} />
+          <Text style={[styles.cardTitle, { color: responseColor }]}>RSVP Response</Text>
+        </View>
+        <View style={styles.cardContent}>
+          <Text style={styles.rsvpResponseText}>You responded: {responseText}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Render deadline card with Mark Done button
+ */
+function renderDeadlineCard(deadline: Deadline, chatId: string, messageId: string) {
+  const isOverdue = isDeadlineOverdue(deadline.dueDate);
+  const priorityColor = getPriorityColor(deadline.priority || 'medium');
+
+  const handleMarkDone = () => {
+    markDeadlineComplete(chatId, messageId, 0); // Mark first deadline
+  };
+
+  return (
+    <View style={[styles.card, styles.deadlineCard, isOverdue && styles.overdueCard]}>
+      <View style={styles.cardHeader}>
+        <Ionicons name="alarm" size={18} color={priorityColor} />
+        <Text style={[styles.cardTitle, { color: priorityColor }]}>
+          {isOverdue ? 'Overdue Deadline' : 'Deadline'}
+        </Text>
+      </View>
+      <View style={styles.cardContent}>
+        <Text style={styles.eventName}>{deadline.task}</Text>
+        <View style={styles.eventDetails}>
+          <Text style={[styles.eventDetail, isOverdue && styles.overdueText]}>
+            ⏰ {formatDeadlineDate(deadline.dueDate, deadline.dueTime)}
+          </Text>
+        </View>
+
+        {/* Priority Badge */}
+        {deadline.priority && (
+          <View style={[styles.priorityBadge, { backgroundColor: priorityColor + '20' }]}>
+            <Text style={[styles.priorityBadgeText, { color: priorityColor }]}>
+              {deadline.priority.toUpperCase()} PRIORITY
+            </Text>
+          </View>
+        )}
+
+        {/* Completed Badge */}
+        {deadline.completed && (
+          <View style={styles.completedBadge}>
+            <Ionicons name="checkmark-circle" size={14} color="#34C759" />
+            <Text style={styles.completedText}>Completed</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Quick Action: Mark Done */}
+      {!deadline.completed && (
+        <View style={styles.quickActions}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.successButton]}
+            onPress={handleMarkDone}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="checkmark-circle-outline" size={16} color="#FFF" />
+            <Text style={styles.actionButtonText}>Mark Done</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -324,6 +514,104 @@ const styles = StyleSheet.create({
   urgencyText: {
     fontSize: 11,
     color: '#FF9500',
+    fontWeight: '600',
+  },
+  // Quick Actions
+  quickActions: {
+    flexDirection: 'row',
+    marginTop: 12,
+    marginLeft: 24,
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 4,
+  },
+  actionButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  primaryButton: {
+    backgroundColor: '#007AFF',
+  },
+  successButton: {
+    backgroundColor: '#34C759',
+  },
+  yesButton: {
+    backgroundColor: '#34C759',
+  },
+  noButton: {
+    backgroundColor: '#FF3B30',
+  },
+  maybeButton: {
+    backgroundColor: '#FF9500',
+  },
+  // RSVP Card
+  rsvpCard: {
+    borderLeftColor: '#5856D6',
+  },
+  rsvpDetails: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  rsvpCounts: {
+    marginTop: 8,
+    backgroundColor: '#F2F2F7',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  rsvpCountText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  rsvpResponseText: {
+    fontSize: 14,
+    color: '#000',
+    fontWeight: '500',
+  },
+  // Deadline Card
+  deadlineCard: {
+    borderLeftColor: '#FF9500',
+  },
+  overdueCard: {
+    backgroundColor: '#FFF5F5',
+    borderLeftColor: '#FF3B30',
+  },
+  overdueText: {
+    color: '#FF3B30',
+    fontWeight: '600',
+  },
+  priorityBadge: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  priorityBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  completedBadge: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  completedText: {
+    fontSize: 12,
+    color: '#34C759',
     fontWeight: '600',
   },
 });

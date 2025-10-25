@@ -421,7 +421,10 @@ export default function ChatScreen() {
                 {item.aiExtraction && (
                   <AIInsightCard
                     message={item}
+                    chatId={chatId!}
+                    currentUserId={user?.uid || ''}
                     onNavigate={handleInsightAction}
+                    onSendMessage={sendMessage}
                   />
                 )}
               </>
