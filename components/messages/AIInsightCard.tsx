@@ -417,10 +417,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F2F7',
     borderLeftWidth: 3,
   },
-  // Compact RSVP response card - tight to message
+  // Compact RSVP response card - tight to message above, space from message below
   responseCard: {
-    marginTop: 4,
-    marginBottom: 2,
+    marginTop: 4,    // Small gap from message above (its own message)
+    marginBottom: 12, // Larger gap from next message (someone else's message)
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 8,
