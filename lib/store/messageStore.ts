@@ -24,6 +24,8 @@ import { performanceMonitor } from '@/lib/utils/performance';
 import { extractCalendarEvents } from '@/lib/ai/calendar';
 import { extractDecisions } from '@/lib/ai/decisions';
 import { detectPriority } from '@/lib/ai/priority';
+import { trackRSVP } from '@/lib/ai/rsvp';
+import { extractDeadlines } from '@/lib/ai/deadlines';
 
 interface MessageState {
   messages: { [chatId: string]: Message[] }; // Keyed by chatId
@@ -86,6 +88,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 calendarEvents: data.aiExtraction.calendarEvents || undefined,
                 decisions: data.aiExtraction.decisions || undefined,
                 priority: data.aiExtraction.priority || undefined,
+                rsvp: data.aiExtraction.rsvp || undefined,
+                deadlines: data.aiExtraction.deadlines || undefined,
+                relatedItems: data.aiExtraction.relatedItems || undefined,
                 extractedAt: data.aiExtraction.extractedAt?.toDate(),
               } : undefined,
             };
@@ -196,6 +201,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             calendarEvents: data.aiExtraction.calendarEvents || undefined,
             decisions: data.aiExtraction.decisions || undefined,
             priority: data.aiExtraction.priority || undefined,
+            rsvp: data.aiExtraction.rsvp || undefined,
+            deadlines: data.aiExtraction.deadlines || undefined,
+            relatedItems: data.aiExtraction.relatedItems || undefined,
             extractedAt: data.aiExtraction.extractedAt?.toDate(),
           } : undefined,
         };
@@ -306,19 +314,23 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const messageId = docRef.id;
 
       // 3.5. Trigger AI multi-feature extraction (fire-and-forget, non-blocking)
-      // Run calendar, decision, and priority extraction in parallel
+      // Run all 5 AI features in parallel
       // This runs in the background and doesn't block the message send flow
-      console.log('[AI] 🚀 Starting multi-feature extraction for message:', messageId);
+      console.log('[AI] 🚀 Starting 5-feature extraction for message:', messageId);
       Promise.all([
         extractCalendarEvents(text),
         extractDecisions(text),
         detectPriority(text),
+        trackRSVP(text, chatId, messageId),
+        extractDeadlines(text),
       ])
-        .then(([calendarEvents, decisions, priority]) => {
-          console.log('[AI] ✅ Multi-feature extraction completed');
+        .then(([calendarEvents, decisions, priority, rsvp, deadlines]) => {
+          console.log('[AI] ✅ 5-feature extraction completed');
           console.log(`[AI] 📅 Calendar events: ${calendarEvents.length}`);
           console.log(`[AI] ✅ Decisions: ${decisions.length}`);
           console.log(`[AI] 🎯 Priority: ${priority?.level || 'none'}`);
+          console.log(`[AI] 🎫 RSVP: ${rsvp ? 'detected' : 'none'}`);
+          console.log(`[AI] ⏰ Deadlines: ${deadlines.length}`);
 
           // Build AI extraction object with all features
           const aiExtraction: any = {
@@ -340,8 +352,27 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             console.log(`[AI] 🎯 Priority: ${priority.level} (urgency: ${priority.urgency})`);
           }
 
+          if (rsvp && (rsvp.isInvitation || rsvp.isResponse)) {
+            aiExtraction.rsvp = rsvp;
+            console.log(`[AI] 🎫 RSVP: ${rsvp.isInvitation ? 'invitation' : 'response'}`);
+          }
+
+          if (deadlines.length > 0) {
+            aiExtraction.deadlines = deadlines;
+            console.log(`[AI] ⏰ Extracted ${deadlines.length} deadline(s)`);
+          }
+
+          // Link RSVP to calendar event if both exist (related items)
+          if (rsvp?.isInvitation && calendarEvents.length > 0) {
+            aiExtraction.relatedItems = {
+              rsvpLinkedToEvent: calendarEvents[0].event,
+            };
+            console.log(`[AI] 🔗 Linked RSVP to calendar event: ${calendarEvents[0].event}`);
+          }
+
           // Only update if we have at least one extraction result
-          if (calendarEvents.length > 0 || decisions.length > 0 || priority) {
+          if (calendarEvents.length > 0 || decisions.length > 0 || priority ||
+              (rsvp && (rsvp.isInvitation || rsvp.isResponse)) || deadlines.length > 0) {
             console.log(`[AI] 💾 Updating message ${messageId} with AI extraction data`);
             const messageRef = doc(firestore, 'chats', chatId, 'messages', messageId);
             return updateDoc(messageRef, { aiExtraction });
