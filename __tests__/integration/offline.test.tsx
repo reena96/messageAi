@@ -14,6 +14,10 @@ jest.mock('@react-native-community/netinfo');
 
 // Mock Firebase
 jest.mock('firebase/firestore');
+jest.mock('firebase/functions', () => ({
+  getFunctions: jest.fn(),
+  httpsCallable: jest.fn(() => jest.fn()),
+}));
 
 describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
   const mockNetInfo = NetInfo as jest.Mocked<typeof NetInfo>;
@@ -29,10 +33,17 @@ describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
     // Reset store using setState
     useMessageStore.setState({
       messages: {},
+      messageEntities: {},
+      messageIdsByChat: {},
       loading: false,
       error: null,
       sendingMessages: new Set(),
       retryQueue: new Set(),
+      optimisticMetadata: {},
+      optimisticIdMap: {},
+      hasMoreMessages: {},
+      loadingOlder: {},
+      oldestMessageDoc: {},
     });
 
     // Default: online
@@ -79,7 +90,7 @@ describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
 
     // Verify message added to retry queue
     expect(state.retryQueue.size).toBe(1);
-    expect(state.retryQueue.has(messages[0].tempId!)).toBe(true);
+    expect(state.retryQueue.has(messages[0].clientGeneratedId!)).toBe(true);
   });
 
   // ===================================
@@ -101,7 +112,7 @@ describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
 
     const state1 = useMessageStore.getState();
     const failedMessage = state1.messages['chat1'][0];
-    const messageId = failedMessage.id || failedMessage.tempId!;
+    const messageKey = failedMessage.clientGeneratedId!;
 
     // Now go online
     mockNetInfo.fetch.mockResolvedValue({
@@ -122,14 +133,14 @@ describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
     mockUpdateDoc.mockResolvedValue(undefined);
 
     // Manually retry the message
-    await useMessageStore.getState().retryMessage('chat1', messageId);
+    await useMessageStore.getState().retryMessage('chat1', messageKey);
 
     // Verify Firestore operations were called
     expect(mockAddDoc).toHaveBeenCalled();
 
     // Verify message removed from retry queue
     const state2 = useMessageStore.getState();
-    expect(state2.retryQueue.has(messageId)).toBe(false);
+    expect(state2.retryQueue.has(messageKey)).toBe(false);
   });
 
   // ===================================
@@ -194,10 +205,11 @@ describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
     expect(state.retryQueue.size).toBe(3);
     expect(state.messages['chat1']).toHaveLength(3);
 
-    // Verify all messages have failed status
+    // Verify all messages have failed status and are in retry queue
     state.messages['chat1'].forEach((msg) => {
       expect(msg.status).toBe('failed');
       expect(msg.error).toBe('No internet connection');
+      expect(state.retryQueue.has(msg.clientGeneratedId!)).toBe(true);
     });
   });
 
@@ -275,7 +287,7 @@ describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
       (m) => m.text === 'Network fail'
     );
     expect(networkFailedMsg?.error).toBe('No internet connection');
-    expect(state1.retryQueue.has(networkFailedMsg?.tempId!)).toBe(true);
+    expect(state1.retryQueue.has(networkFailedMsg?.clientGeneratedId!)).toBe(true);
 
     // Test 2: Permission error (should NOT be added to retry queue)
     const permissionError: any = new Error('Access denied');
@@ -291,7 +303,7 @@ describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
       (m) => m.text === 'Permission fail'
     );
     expect(permissionFailedMsg?.error).toBe('Failed to send message');
-    expect(state2.retryQueue.has(permissionFailedMsg?.tempId!)).toBe(false);
+    expect(state2.retryQueue.has(permissionFailedMsg?.clientGeneratedId!)).toBe(false);
   });
 
   // ===================================
@@ -313,7 +325,7 @@ describe('Offline Scenario Tests (RUBRIC REQUIREMENT)', () => {
 
     const state1 = useMessageStore.getState();
     const failedMessage = state1.messages['chat1'][0];
-    const messageId = failedMessage.tempId!;
+    const messageId = failedMessage.clientGeneratedId!;
 
     // Verify in retry queue
     expect(state1.retryQueue.has(messageId)).toBe(true);

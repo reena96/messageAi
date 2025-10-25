@@ -19,7 +19,7 @@ import {
 } from 'firebase/firestore';
 import NetInfo from '@react-native-community/netinfo';
 import { firestore } from '../firebase/config';
-import { Message } from '@/types/message';
+import { Message, OptimisticStatus } from '@/types/message';
 import { performanceMonitor } from '@/lib/utils/performance';
 import { extractCalendarEvents } from '@/lib/ai/calendar';
 import { extractDecisions } from '@/lib/ai/decisions';
@@ -27,12 +27,304 @@ import { detectPriority } from '@/lib/ai/priority';
 import { trackRSVP } from '@/lib/ai/rsvp';
 import { extractDeadlines } from '@/lib/ai/deadlines';
 
-interface MessageState {
+type MessageEntityMap = Record<string, Message>;
+type MessageIdMap = Record<string, string[]>;
+type OptimisticMetadataMap = Record<string, OptimisticEntry>;
+
+interface OptimisticEntry {
+  clientGeneratedId: string;
+  chatId: string;
+  status: OptimisticStatus;
+  enqueuedAt: number;
+  retryCount: number;
+  errorCode?: string;
+  settledAt?: number;
+  serverId?: string;
+}
+
+const MAX_BATCH = 50;
+
+const buildChatMessages = (ids: string[], entities: MessageEntityMap): Message[] => {
+  return ids
+    .map((id) => entities[id])
+    .filter((msg): msg is Message => Boolean(msg));
+};
+
+const dedupeIds = (ids: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  ids.forEach((id) => {
+    if (!id || seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    result.push(id);
+  });
+  return result;
+};
+
+const mergeLatestWindow = (
+  state: MessageState,
+  chatId: string,
+  incoming: Message[]
+) => {
+  const messageEntities: MessageEntityMap = { ...state.messageEntities };
+  const optimisticMetadata: OptimisticMetadataMap = {
+    ...state.optimisticMetadata,
+  };
+  const optimisticIdMap: Record<string, string> = {
+    ...state.optimisticIdMap,
+  };
+  const sendingMessages = new Set(state.sendingMessages);
+  const retryQueue = new Set(state.retryQueue);
+  const replacements = new Map<string, string>();
+
+  incoming.forEach((rawMessage) => {
+    const incomingMessage: Message = {
+      ...rawMessage,
+      clientGeneratedId: rawMessage.clientGeneratedId ?? rawMessage.tempId,
+    };
+
+    const clientId = incomingMessage.clientGeneratedId;
+    if (clientId) {
+      const currentId = optimisticIdMap[clientId] || clientId;
+      const optimisticEntity =
+        messageEntities[currentId] || messageEntities[clientId];
+      const optimisticInfo = optimisticMetadata[clientId];
+      const now = Date.now();
+
+      if (optimisticEntity) {
+        const mergedMessage: Message = {
+          ...optimisticEntity,
+          ...incomingMessage,
+          id: incomingMessage.id,
+          status: incomingMessage.status ?? optimisticEntity.status ?? 'sent',
+          tempId: optimisticEntity.tempId,
+          clientGeneratedId: clientId,
+          optimisticStatus: 'confirmed',
+          optimisticEnqueuedAt:
+            optimisticEntity.optimisticEnqueuedAt ??
+            optimisticInfo?.enqueuedAt ??
+            now,
+          optimisticSettledAt: now,
+          retryCount:
+            optimisticEntity.retryCount ??
+            optimisticInfo?.retryCount ??
+            0,
+          error: undefined,
+          errorCode: undefined,
+        };
+
+        if (currentId !== incomingMessage.id) {
+          delete messageEntities[currentId];
+          replacements.set(currentId, incomingMessage.id);
+        }
+
+        messageEntities[incomingMessage.id] = mergedMessage;
+      } else {
+        const mergedMessage: Message = {
+          ...incomingMessage,
+          clientGeneratedId: clientId,
+          optimisticStatus: 'confirmed',
+          optimisticEnqueuedAt: optimisticInfo?.enqueuedAt ?? now,
+          optimisticSettledAt: now,
+          retryCount: optimisticInfo?.retryCount ?? 0,
+          error: undefined,
+          errorCode: undefined,
+        };
+
+        messageEntities[incomingMessage.id] = mergedMessage;
+      }
+
+      optimisticMetadata[clientId] = {
+        clientGeneratedId: clientId,
+        chatId,
+        status: 'confirmed',
+        enqueuedAt:
+          optimisticInfo?.enqueuedAt ??
+          state.optimisticMetadata[clientId]?.enqueuedAt ??
+          now,
+        settledAt: now,
+        retryCount: optimisticInfo?.retryCount ?? 0,
+        serverId: incomingMessage.id,
+      };
+      optimisticIdMap[clientId] = incomingMessage.id;
+      sendingMessages.delete(clientId);
+      retryQueue.delete(clientId);
+      return;
+    }
+
+    messageEntities[incomingMessage.id] = incomingMessage;
+  });
+
+  const previousIds = state.messageIdsByChat[chatId] || [];
+  const adjustedPrevious = previousIds.map(
+    (id) => replacements.get(id) || id
+  );
+  const incomingIds = incoming.map((message) => message.id);
+  const incomingSet = new Set(incomingIds);
+
+  const optimisticIds = adjustedPrevious.filter((id) => {
+    const entity = messageEntities[id];
+    const clientId = entity?.clientGeneratedId || entity?.tempId;
+    return (
+      clientId &&
+      (sendingMessages.has(clientId) || entity?.optimisticStatus === 'failed')
+    );
+  });
+
+  const optimisticSet = new Set(optimisticIds);
+  const preservedOlderIds = adjustedPrevious.filter(
+    (id) => !incomingSet.has(id) && !optimisticSet.has(id)
+  );
+
+  const mergedIds = dedupeIds([
+    ...optimisticIds,
+    ...incomingIds,
+    ...preservedOlderIds,
+  ]);
+
+  const messages = buildChatMessages(mergedIds, messageEntities);
+
+  return {
+    messageEntities,
+    messageIdsByChat: {
+      ...state.messageIdsByChat,
+      [chatId]: mergedIds,
+    },
+    messages: {
+      ...state.messages,
+      [chatId]: messages,
+    },
+    optimisticMetadata,
+    optimisticIdMap,
+    sendingMessages,
+    retryQueue,
+  };
+};
+
+const appendOlderMessages = (
+  state: MessageState,
+  chatId: string,
+  olderMessages: Message[]
+) => {
+  if (olderMessages.length === 0) {
+    return {
+      messageEntities: state.messageEntities,
+      messageIdsByChat: state.messageIdsByChat,
+      messages: state.messages,
+    };
+  }
+
+  const messageEntities: MessageEntityMap = { ...state.messageEntities };
+  olderMessages.forEach((message) => {
+    messageEntities[message.id] = message;
+  });
+
+  const existingIds = state.messageIdsByChat[chatId] || [];
+  const existingSet = new Set(existingIds);
+  const mergedIds = [...existingIds];
+
+  olderMessages.forEach((message) => {
+    if (!existingSet.has(message.id)) {
+      existingSet.add(message.id);
+      mergedIds.push(message.id);
+    }
+  });
+
+  const messages = buildChatMessages(mergedIds, messageEntities);
+
+  return {
+    messageEntities,
+    messageIdsByChat: {
+      ...state.messageIdsByChat,
+      [chatId]: mergedIds,
+    },
+    messages: {
+      ...state.messages,
+      [chatId]: messages,
+    },
+  };
+};
+
+const removeMessagesById = (
+  state: MessageState,
+  chatId: string,
+  idsToRemove: string[]
+) => {
+  if (idsToRemove.length === 0) {
+    return {
+      messageEntities: state.messageEntities,
+      messageIdsByChat: state.messageIdsByChat,
+      messages: state.messages,
+    };
+  }
+
+  const messageEntities: MessageEntityMap = { ...state.messageEntities };
+  idsToRemove.forEach((id) => {
+    delete messageEntities[id];
+  });
+
+  const remainingIds = (state.messageIdsByChat[chatId] || []).filter(
+    (id) => !idsToRemove.includes(id)
+  );
+
+  const messages = buildChatMessages(remainingIds, messageEntities);
+
+  return {
+    messageEntities,
+    messageIdsByChat: {
+      ...state.messageIdsByChat,
+      [chatId]: remainingIds,
+    },
+    messages: {
+      ...state.messages,
+      [chatId]: messages,
+    },
+  };
+};
+
+const updateMessageEntity = (
+  state: MessageState,
+  chatId: string,
+  messageId: string,
+  updater: (message: Message) => Message
+) => {
+  const existing = state.messageEntities[messageId];
+  if (!existing) {
+    return {
+      messageEntities: state.messageEntities,
+      messages: state.messages,
+    };
+  }
+
+  const messageEntities: MessageEntityMap = {
+    ...state.messageEntities,
+    [messageId]: updater(existing),
+  };
+
+  const ids = state.messageIdsByChat[chatId] || [];
+  const messages = buildChatMessages(ids, messageEntities);
+
+  return {
+    messageEntities,
+    messages: {
+      ...state.messages,
+      [chatId]: messages,
+    },
+  };
+};
+
+export interface MessageState {
   messages: { [chatId: string]: Message[] }; // Keyed by chatId
+  messageEntities: MessageEntityMap;
+  messageIdsByChat: MessageIdMap;
   loading: boolean;
   error: string | null;
-  sendingMessages: Set<string>; // Track tempIds of messages being sent
-  retryQueue: Set<string>; // Track tempIds of messages to retry
+  sendingMessages: Set<string>; // Track clientGeneratedIds of messages being sent
+  retryQueue: Set<string>; // Track clientGeneratedIds of messages to retry
+  optimisticMetadata: OptimisticMetadataMap; // Track optimistic lifecycle metadata keyed by clientGeneratedId
+  optimisticIdMap: Record<string, string>; // Map clientGeneratedId -> current message id in store
   hasMoreMessages: { [chatId: string]: boolean }; // Track if more messages available
   loadingOlder: { [chatId: string]: boolean }; // Track if loading older messages
   oldestMessageDoc: { [chatId: string]: QueryDocumentSnapshot | null }; // Track oldest message for pagination
@@ -52,10 +344,14 @@ interface MessageState {
 export const useMessageStore = create<MessageState>((set, get) => ({
   // Initial state
   messages: {},
+  messageEntities: {},
+  messageIdsByChat: {},
   loading: false,
   error: null,
   sendingMessages: new Set(),
   retryQueue: new Set(),
+  optimisticMetadata: {},
+  optimisticIdMap: {},
   hasMoreMessages: {},
   loadingOlder: {},
   oldestMessageDoc: {},
@@ -67,7 +363,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       const messagesRef = collection(firestore, 'chats', chatId, 'messages');
       // Query last 50 messages in descending order (newest first)
-      const q = query(messagesRef, orderBy('timestamp', 'desc'), limit(50));
+      const q = query(messagesRef, orderBy('timestamp', 'desc'), limit(MAX_BATCH));
 
       const unsubscribe = onSnapshot(
         q,
@@ -82,50 +378,30 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               timestamp: data.timestamp?.toDate() || new Date(),
               status: data.status || 'sent',
               readBy: data.readBy || [],
+              clientGeneratedId: data.clientGeneratedId || undefined,
               imageUrl: data.imageUrl,
               type: data.type || 'text',
-              aiExtraction: data.aiExtraction ? {
-                calendarEvents: data.aiExtraction.calendarEvents || undefined,
-                decisions: data.aiExtraction.decisions || undefined,
-                priority: data.aiExtraction.priority || undefined,
-                rsvp: data.aiExtraction.rsvp || undefined,
-                deadlines: data.aiExtraction.deadlines || undefined,
-                relatedItems: data.aiExtraction.relatedItems || undefined,
-                extractedAt: data.aiExtraction.extractedAt?.toDate(),
-              } : undefined,
+              aiExtraction: data.aiExtraction
+                ? {
+                    calendarEvents: data.aiExtraction.calendarEvents || undefined,
+                    decisions: data.aiExtraction.decisions || undefined,
+                    priority: data.aiExtraction.priority || undefined,
+                    rsvp: data.aiExtraction.rsvp || undefined,
+                    deadlines: data.aiExtraction.deadlines || undefined,
+                    relatedItems: data.aiExtraction.relatedItems || undefined,
+                    extractedAt: data.aiExtraction.extractedAt?.toDate(),
+                  }
+                : undefined,
             };
-          }).reverse(); // Reverse to get chronological order (oldest first)
+          });
 
           set((state) => {
-            // Get current messages including optimistic ones
-            const currentMessages = state.messages[chatId] || [];
-
-            // Get all optimistic messages (those with tempId)
-            const allOptimisticMessages = currentMessages.filter((msg) => msg.tempId);
-
-            // Keep optimistic messages that are:
-            // 1. Still being sent (in sendingMessages set), OR
-            // 2. Failed (to show error state with retry button)
-            // Successful messages are removed immediately after send (lines 237-254)
-            const optimisticMessages = allOptimisticMessages.filter((optMsg) => {
-              return (
-                state.sendingMessages.has(optMsg.tempId!) ||
-                optMsg.status === 'failed'
-              );
-            });
-
-            // Merge: Firestore messages + optimistic messages that should be kept
-            const mergedMessages = [...firestoreMessages, ...optimisticMessages];
-
-            // Track oldest message document for pagination
+            const merged = mergeLatestWindow(state, chatId, firestoreMessages);
             const oldestDoc = snapshot.docs[snapshot.docs.length - 1] || null;
-            const hasMore = snapshot.docs.length === 50; // If we got 50, there might be more
+            const hasMore = snapshot.docs.length === MAX_BATCH;
 
             return {
-              messages: {
-                ...state.messages,
-                [chatId]: mergedMessages,
-              },
+              ...merged,
               oldestMessageDoc: {
                 ...state.oldestMessageDoc,
                 [chatId]: oldestDoc,
@@ -180,7 +456,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         messagesRef,
         orderBy('timestamp', 'desc'),
         startAfter(oldestDoc),
-        limit(50)
+        limit(MAX_BATCH)
       );
 
       const snapshot = await getDocs(q);
@@ -195,6 +471,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           timestamp: data.timestamp?.toDate() || new Date(),
           status: data.status || 'sent',
           readBy: data.readBy || [],
+          clientGeneratedId: data.clientGeneratedId || undefined,
           imageUrl: data.imageUrl,
           type: data.type || 'text',
           aiExtraction: data.aiExtraction ? {
@@ -207,20 +484,17 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             extractedAt: data.aiExtraction.extractedAt?.toDate(),
           } : undefined,
         };
-      }).reverse(); // Reverse to chronological order
+      });
 
       console.log('📜 [MessageStore] Loaded', olderMessages.length, 'older messages');
 
       set((state) => {
-        const currentMessages = state.messages[chatId] || [];
         const newOldestDoc = snapshot.docs[snapshot.docs.length - 1] || null;
-        const hasMore = snapshot.docs.length === 50;
+        const hasMore = snapshot.docs.length === MAX_BATCH;
+        const merged = appendOlderMessages(state, chatId, olderMessages);
 
         return {
-          messages: {
-            ...state.messages,
-            [chatId]: [...olderMessages, ...currentMessages], // Prepend older messages
-          },
+          ...merged,
           oldestMessageDoc: {
             ...state.oldestMessageDoc,
             [chatId]: newOldestDoc,
@@ -249,49 +523,112 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const performanceMark = `message-send-${Date.now()}`;
     performanceMonitor.mark(performanceMark);
 
-    const tempId = `temp-${Date.now()}-${Math.random()}`;
+    const clientGeneratedId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const optimisticEnqueuedAt = Date.now();
     const optimisticMessage: Message = {
-      id: tempId,
+      id: clientGeneratedId,
       chatId,
       senderId,
       text,
       timestamp: new Date(),
       status: 'sending',
       readBy: [senderId],
-      tempId,
+      tempId: clientGeneratedId,
+      clientGeneratedId,
       type: 'text',
+      optimisticStatus: 'pending',
+      optimisticEnqueuedAt,
+      retryCount: 0,
+    };
+    const optimisticEntry: OptimisticEntry = {
+      clientGeneratedId,
+      chatId,
+      status: 'pending',
+      enqueuedAt: optimisticEnqueuedAt,
+      retryCount: 0,
     };
 
     // 1. Add optimistic message immediately (instant UI feedback)
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [chatId]: [...(state.messages[chatId] || []), optimisticMessage],
-      },
-      sendingMessages: new Set([...state.sendingMessages, tempId]),
-    }));
+    set((state) => {
+      const messageEntities: MessageEntityMap = {
+        ...state.messageEntities,
+        [clientGeneratedId]: optimisticMessage,
+      };
+      const existingIds = state.messageIdsByChat[chatId] || [];
+      const mergedIds = [
+        clientGeneratedId,
+        ...existingIds.filter((id) => id !== clientGeneratedId),
+      ];
+      const messages = buildChatMessages(mergedIds, messageEntities);
+
+      return {
+        messageEntities,
+        messageIdsByChat: {
+          ...state.messageIdsByChat,
+          [chatId]: mergedIds,
+        },
+        messages: {
+          ...state.messages,
+          [chatId]: messages,
+        },
+        sendingMessages: new Set([...state.sendingMessages, clientGeneratedId]),
+        optimisticMetadata: {
+          ...state.optimisticMetadata,
+          [clientGeneratedId]: optimisticEntry,
+        },
+        optimisticIdMap: {
+          ...state.optimisticIdMap,
+          [clientGeneratedId]: clientGeneratedId,
+        },
+      };
+    });
 
     try {
       // 2. Check network before sending to Firestore
       const netInfo = await NetInfo.fetch();
+      console.log('[MessageStore] NetInfo status before send:', {
+        isConnected: netInfo?.isConnected ?? null,
+        isInternetReachable: netInfo?.isInternetReachable ?? null,
+        type: netInfo?.type ?? 'unknown',
+        details: netInfo?.details ?? null,
+      });
 
       if (!netInfo.isConnected) {
         // Update optimistic message to failed status
         set((state) => {
-          const chatMessages = state.messages[chatId] || [];
-          const updatedMessages = chatMessages.map((m) =>
-            m.tempId === tempId
-              ? { ...m, status: 'failed' as const, error: 'No internet connection' }
-              : m
+          const messageKey =
+            state.optimisticIdMap[clientGeneratedId] || clientGeneratedId;
+          const newSendingMessages = new Set(state.sendingMessages);
+          newSendingMessages.delete(clientGeneratedId);
+          const now = Date.now();
+
+          const update = updateMessageEntity(
+            state,
+            chatId,
+            messageKey,
+            (message) => ({
+              ...message,
+              status: 'failed' as const,
+              optimisticStatus: 'failed',
+              optimisticSettledAt: now,
+              error: 'No internet connection',
+              errorCode: 'NETWORK_OFFLINE',
+            })
           );
 
-          const newSendingMessages = new Set(state.sendingMessages);
-          newSendingMessages.delete(tempId);
-
           return {
-            messages: { ...state.messages, [chatId]: updatedMessages },
+            ...update,
             sendingMessages: newSendingMessages,
-            retryQueue: new Set([...state.retryQueue, tempId]),
+            retryQueue: new Set([...state.retryQueue, clientGeneratedId]),
+            optimisticMetadata: {
+              ...state.optimisticMetadata,
+              [clientGeneratedId]: {
+                ...(state.optimisticMetadata[clientGeneratedId] ?? optimisticEntry),
+                status: 'failed',
+                settledAt: now,
+                errorCode: 'NETWORK_OFFLINE',
+              },
+            },
           };
         });
 
@@ -308,6 +645,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         status: 'sent',
         readBy: [senderId],
         type: 'text',
+        clientGeneratedId,
       };
 
       const docRef = await addDoc(messagesRef, messageData);
@@ -425,22 +763,92 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       await updateDoc(chatRef, updates);
 
-      // 5. Remove optimistic message and clear from sendingMessages
-      // (Firestore onSnapshot will add the real message with proper ID)
+      // 5. Reconcile optimistic message in place to avoid flicker
       set((state) => {
-        const newSendingMessages = new Set(state.sendingMessages);
-        newSendingMessages.delete(tempId);
+        const now = Date.now();
+        const messageEntities: MessageEntityMap = { ...state.messageEntities };
+        const messageKey =
+          state.optimisticIdMap[clientGeneratedId] || clientGeneratedId;
+        const existing = messageEntities[messageKey] || messageEntities[clientGeneratedId];
 
-        // Remove the optimistic message from state
-        const chatMessages = state.messages[chatId] || [];
-        const updatedMessages = chatMessages.filter((m) => m.tempId !== tempId);
+        const reconciled: Message = existing
+          ? {
+              ...existing,
+              id: messageId,
+              status: 'sent',
+              clientGeneratedId,
+              tempId: undefined,
+              optimisticStatus: 'confirmed',
+              optimisticSettledAt: now,
+              optimisticEnqueuedAt:
+                existing.optimisticEnqueuedAt ?? optimisticEnqueuedAt,
+              retryCount:
+                existing.retryCount ??
+                state.optimisticMetadata[clientGeneratedId]?.retryCount ??
+                0,
+              error: undefined,
+              errorCode: undefined,
+            }
+          : {
+              ...optimisticMessage,
+              id: messageId,
+              status: 'sent',
+              clientGeneratedId,
+              tempId: undefined,
+              optimisticStatus: 'confirmed',
+              optimisticSettledAt: now,
+              optimisticEnqueuedAt,
+              retryCount: 0,
+              error: undefined,
+              errorCode: undefined,
+            };
+
+        if (messageKey !== messageId) {
+          delete messageEntities[messageKey];
+        }
+        messageEntities[messageId] = reconciled;
+
+        const existingIds = state.messageIdsByChat[chatId] || [];
+        const mappedIds = existingIds.map((id) =>
+          id === messageKey ? messageId : id
+        );
+        const mergedIds = mappedIds.includes(messageId)
+          ? dedupeIds(mappedIds)
+          : dedupeIds([messageId, ...mappedIds]);
+        const messages = buildChatMessages(mergedIds, messageEntities);
+
+        const sendingMessages = new Set(state.sendingMessages);
+        sendingMessages.delete(clientGeneratedId);
+
+        const retryQueue = new Set(state.retryQueue);
+        retryQueue.delete(clientGeneratedId);
 
         return {
+          messageEntities,
+          messageIdsByChat: {
+            ...state.messageIdsByChat,
+            [chatId]: mergedIds,
+          },
           messages: {
             ...state.messages,
-            [chatId]: updatedMessages,
+            [chatId]: messages,
           },
-          sendingMessages: newSendingMessages,
+          sendingMessages,
+          retryQueue,
+          optimisticMetadata: {
+            ...state.optimisticMetadata,
+            [clientGeneratedId]: {
+              ...(state.optimisticMetadata[clientGeneratedId] ?? optimisticEntry),
+              status: 'confirmed',
+              settledAt: now,
+              serverId: messageId,
+              errorCode: undefined,
+            },
+          },
+          optimisticIdMap: {
+            ...state.optimisticIdMap,
+            [clientGeneratedId]: messageId,
+          },
         };
       });
 
@@ -456,38 +864,48 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         errorMessage.includes('network') ||
         errorMessage.includes('internet') ||
         errorMessage.includes('offline');
+      const now = Date.now();
 
       // Mark optimistic message as failed
       set((state) => {
-        const chatMessages = state.messages[chatId] || [];
-        const updatedMessages = chatMessages.map((m) =>
-          m.tempId === tempId
-            ? {
-                ...m,
-                status: 'failed' as const,
-                error: isNetworkError
-                  ? 'No internet connection'
-                  : 'Failed to send message',
-              }
-            : m
-        );
-
+        const messageKey =
+          state.optimisticIdMap[clientGeneratedId] || clientGeneratedId;
         const newSendingMessages = new Set(state.sendingMessages);
-        newSendingMessages.delete(tempId);
+        newSendingMessages.delete(clientGeneratedId);
 
         const newRetryQueue = new Set(state.retryQueue);
         if (isNetworkError) {
-          newRetryQueue.add(tempId);
+          newRetryQueue.add(clientGeneratedId);
         }
 
+        const update = updateMessageEntity(
+          state,
+          chatId,
+          messageKey,
+          (message) => ({
+            ...message,
+            status: 'failed' as const,
+            optimisticStatus: 'failed',
+            optimisticSettledAt: now,
+            error: isNetworkError ? 'No internet connection' : 'Failed to send message',
+            errorCode: isNetworkError ? 'NETWORK_ERROR' : 'SEND_FAILED',
+          })
+        );
+
         return {
-          messages: {
-            ...state.messages,
-            [chatId]: updatedMessages,
-          },
+          ...update,
           sendingMessages: newSendingMessages,
           retryQueue: newRetryQueue,
           error: error.message,
+          optimisticMetadata: {
+            ...state.optimisticMetadata,
+            [clientGeneratedId]: {
+              ...(state.optimisticMetadata[clientGeneratedId] ?? optimisticEntry),
+              status: 'failed',
+              settledAt: now,
+              errorCode: isNetworkError ? 'NETWORK_ERROR' : 'SEND_FAILED',
+            },
+          },
         };
       });
 
@@ -501,37 +919,71 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     const state = get();
     const chatMessages = state.messages[chatId] || [];
-    const failedMessage = chatMessages.find((m) => m.id === messageId || m.tempId === messageId);
+    const failedMessage = chatMessages.find(
+      (m) => m.id === messageId || m.tempId === messageId || m.clientGeneratedId === messageId
+    );
 
     if (!failedMessage) {
       console.error('❌ [MessageStore] Message not found:', messageId);
       throw new Error('Message not found');
     }
 
+    const clientGeneratedId =
+      failedMessage.clientGeneratedId || failedMessage.tempId || failedMessage.id;
+    const messageKey =
+      state.optimisticIdMap[clientGeneratedId] || failedMessage.id || clientGeneratedId;
+
     console.log('🔄 [MessageStore] Found failed message:', {
       text: failedMessage.text.substring(0, 20),
       status: failedMessage.status,
       error: failedMessage.error,
+      clientGeneratedId,
     });
+
+    const previousMetadata = state.optimisticMetadata[clientGeneratedId];
+    const retryCount =
+      (previousMetadata?.retryCount ?? failedMessage.retryCount ?? 0) + 1;
 
     // Remove from retry queue first
     const newRetryQueue = new Set(state.retryQueue);
-    newRetryQueue.delete(messageId);
+    newRetryQueue.delete(clientGeneratedId);
     set({ retryQueue: newRetryQueue });
     console.log('🔄 [MessageStore] Removed from retry queue. Queue size:', newRetryQueue.size);
 
     // Update existing failed message to "sending" status (don't create new message)
     set((state) => {
-      const chatMessages = state.messages[chatId] || [];
-      const updatedMessages = chatMessages.map((m) =>
-        (m.id === messageId || m.tempId === messageId)
-          ? { ...m, status: 'sending' as const, error: undefined }
-          : m
-      );
+      const update = updateMessageEntity(state, chatId, messageKey, (message) => ({
+        ...message,
+        status: 'sending' as const,
+        optimisticStatus: 'pending',
+        optimisticSettledAt: undefined,
+        error: undefined,
+        errorCode: undefined,
+        retryCount,
+      }));
 
       return {
-        messages: { ...state.messages, [chatId]: updatedMessages },
-        sendingMessages: new Set([...state.sendingMessages, messageId]),
+        ...update,
+        sendingMessages: new Set([...state.sendingMessages, clientGeneratedId]),
+        optimisticMetadata: {
+          ...state.optimisticMetadata,
+          [clientGeneratedId]: {
+            ...(state.optimisticMetadata[clientGeneratedId] ?? {
+              clientGeneratedId,
+              chatId,
+              enqueuedAt: failedMessage.optimisticEnqueuedAt ?? Date.now(),
+              retryCount: 0,
+            }),
+            status: 'pending',
+            settledAt: undefined,
+            errorCode: undefined,
+            retryCount,
+          },
+        },
+        optimisticIdMap: {
+          ...state.optimisticIdMap,
+          [clientGeneratedId]: messageKey,
+        },
       };
     });
     console.log('🔄 [MessageStore] Updated message status to "sending"');
@@ -541,6 +993,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       // Check network
       console.log('🔄 [MessageStore] Checking network status...');
       const netInfo = await NetInfo.fetch();
+      console.log('[MessageStore] NetInfo status before retry:', {
+        isConnected: netInfo?.isConnected ?? null,
+        isInternetReachable: netInfo?.isInternetReachable ?? null,
+        type: netInfo?.type ?? 'unknown',
+        details: netInfo?.details ?? null,
+      });
       console.log('📶 [MessageStore] Network status:', {
         isConnected: netInfo.isConnected,
         isInternetReachable: netInfo.isInternetReachable,
@@ -549,22 +1007,41 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       if (!netInfo.isConnected) {
         console.log('❌ [MessageStore] Still offline, marking as failed again');
+        const now = Date.now();
         // Still offline, mark as failed again
         set((state) => {
-          const chatMessages = state.messages[chatId] || [];
-          const updatedMessages = chatMessages.map((m) =>
-            (m.id === messageId || m.tempId === messageId)
-              ? { ...m, status: 'failed' as const, error: 'No internet connection' }
-              : m
-          );
-
           const newSendingMessages = new Set(state.sendingMessages);
-          newSendingMessages.delete(messageId);
+          newSendingMessages.delete(clientGeneratedId);
+
+          const update = updateMessageEntity(state, chatId, messageKey, (message) => ({
+            ...message,
+            status: 'failed' as const,
+            optimisticStatus: 'failed',
+            optimisticSettledAt: now,
+            error: 'No internet connection',
+            errorCode: 'NETWORK_OFFLINE',
+            retryCount,
+          }));
 
           return {
-            messages: { ...state.messages, [chatId]: updatedMessages },
+            ...update,
             sendingMessages: newSendingMessages,
-            retryQueue: new Set([...state.retryQueue, messageId]),
+            retryQueue: new Set([...state.retryQueue, clientGeneratedId]),
+            optimisticMetadata: {
+              ...state.optimisticMetadata,
+              [clientGeneratedId]: {
+                ...(state.optimisticMetadata[clientGeneratedId] ?? {
+                  clientGeneratedId,
+                  chatId,
+                  enqueuedAt: failedMessage.optimisticEnqueuedAt ?? now,
+                  retryCount: retryCount,
+                }),
+                status: 'failed',
+                settledAt: now,
+                errorCode: 'NETWORK_OFFLINE',
+                retryCount,
+              },
+            },
           };
         });
 
@@ -581,9 +1058,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         status: 'sent',
         readBy: [failedMessage.senderId],
         type: failedMessage.type || 'text',
+        clientGeneratedId,
       };
 
-      await addDoc(messagesRef, messageData);
+      const docRef = await addDoc(messagesRef, messageData);
+      const newMessageId = docRef.id;
 
       // Update chat's lastMessage
       const chatRef = doc(firestore, 'chats', chatId);
@@ -605,7 +1084,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       participants.forEach((participantId: string) => {
         if (participantId !== failedMessage.senderId) {
           const viewerTimestamp = activeViewers[participantId];
-          const isActivelyViewing = viewerTimestamp &&
+          const isActivelyViewing =
+            viewerTimestamp &&
             (now - (viewerTimestamp.toMillis ? viewerTimestamp.toMillis() : viewerTimestamp) < 5000);
 
           if (!isActivelyViewing) {
@@ -616,24 +1096,79 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       await updateDoc(chatRef, updates);
 
-      // Remove optimistic message and clear from sendingMessages
-      // (Firestore onSnapshot will add the real message)
+      // Reconcile optimistic message with the authoritative payload
       set((state) => {
-        const newSendingMessages = new Set(state.sendingMessages);
-        newSendingMessages.delete(messageId);
+        const settledAt = Date.now();
+        const messageEntities: MessageEntityMap = { ...state.messageEntities };
+        const optimisticKey =
+          state.optimisticIdMap[clientGeneratedId] || clientGeneratedId;
+        const existing = messageEntities[optimisticKey] || messageEntities[clientGeneratedId] || failedMessage;
 
-        // Remove the optimistic/failed message from state
-        const chatMessages = state.messages[chatId] || [];
-        const updatedMessages = chatMessages.filter(
-          (m) => m.id !== messageId && m.tempId !== messageId
+        const reconciled: Message = {
+          ...existing,
+          id: newMessageId,
+          status: 'sent',
+          clientGeneratedId,
+          tempId: undefined,
+          optimisticStatus: 'confirmed',
+          optimisticSettledAt: settledAt,
+          optimisticEnqueuedAt:
+            existing.optimisticEnqueuedAt ??
+            failedMessage.optimisticEnqueuedAt ??
+            settledAt,
+          retryCount,
+          error: undefined,
+          errorCode: undefined,
+        };
+
+        if (optimisticKey !== newMessageId) {
+          delete messageEntities[optimisticKey];
+        }
+        messageEntities[newMessageId] = reconciled;
+
+        const ids = state.messageIdsByChat[chatId] || [];
+        const mappedIds = ids.map((id) =>
+          id === optimisticKey ? newMessageId : id
         );
+        const mergedIds = mappedIds.includes(newMessageId)
+          ? dedupeIds(mappedIds)
+          : dedupeIds([newMessageId, ...mappedIds]);
+        const messages = buildChatMessages(mergedIds, messageEntities);
+
+        const sendingMessages = new Set(state.sendingMessages);
+        sendingMessages.delete(clientGeneratedId);
 
         return {
+          messageEntities,
+          messageIdsByChat: {
+            ...state.messageIdsByChat,
+            [chatId]: mergedIds,
+          },
           messages: {
             ...state.messages,
-            [chatId]: updatedMessages,
+            [chatId]: messages,
           },
-          sendingMessages: newSendingMessages,
+          sendingMessages,
+          retryQueue: new Set(state.retryQueue),
+          optimisticMetadata: {
+            ...state.optimisticMetadata,
+            [clientGeneratedId]: {
+              ...(state.optimisticMetadata[clientGeneratedId] ?? {
+                clientGeneratedId,
+                chatId,
+                enqueuedAt: failedMessage.optimisticEnqueuedAt ?? settledAt,
+              }),
+              status: 'confirmed',
+              settledAt,
+              errorCode: undefined,
+              retryCount,
+              serverId: newMessageId,
+            },
+          },
+          optimisticIdMap: {
+            ...state.optimisticIdMap,
+            [clientGeneratedId]: newMessageId,
+          },
         };
       });
     } catch (error: any) {
@@ -646,31 +1181,45 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         errorMessage.includes('network') ||
         errorMessage.includes('internet') ||
         errorMessage.includes('offline');
+      const settledAt = Date.now();
 
       set((state) => {
-        const chatMessages = state.messages[chatId] || [];
-        const updatedMessages = chatMessages.map((m) =>
-          (m.id === messageId || m.tempId === messageId)
-            ? {
-                ...m,
-                status: 'failed' as const,
-                error: isNetworkError ? 'No internet connection' : 'Failed to send message',
-              }
-            : m
-        );
-
         const newSendingMessages = new Set(state.sendingMessages);
-        newSendingMessages.delete(messageId);
+        newSendingMessages.delete(clientGeneratedId);
 
         const newRetryQueue = new Set(state.retryQueue);
         if (isNetworkError) {
-          newRetryQueue.add(messageId);
+          newRetryQueue.add(clientGeneratedId);
         }
 
+        const update = updateMessageEntity(state, chatId, messageKey, (message) => ({
+          ...message,
+          status: 'failed' as const,
+          optimisticStatus: 'failed',
+          optimisticSettledAt: settledAt,
+          error: isNetworkError ? 'No internet connection' : 'Failed to send message',
+          errorCode: isNetworkError ? 'NETWORK_ERROR' : 'SEND_FAILED',
+          retryCount,
+        }));
+
         return {
-          messages: { ...state.messages, [chatId]: updatedMessages },
+          ...update,
           sendingMessages: newSendingMessages,
           retryQueue: newRetryQueue,
+          optimisticMetadata: {
+            ...state.optimisticMetadata,
+            [clientGeneratedId]: {
+              ...(state.optimisticMetadata[clientGeneratedId] ?? {
+                clientGeneratedId,
+                chatId,
+                enqueuedAt: failedMessage.optimisticEnqueuedAt ?? settledAt,
+              }),
+              status: 'failed',
+              settledAt,
+              errorCode: isNetworkError ? 'NETWORK_ERROR' : 'SEND_FAILED',
+              retryCount,
+            },
+          },
         };
       });
 

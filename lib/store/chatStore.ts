@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
 import { Chat } from '@/types/chat';
-import { debugLog, errorLog, chatStoreLog } from '@/lib/utils/debug';
+import { debugLog, errorLog, chatStoreSnapshotLog } from '@/lib/utils/debug';
 
 interface ChatState {
   chats: Chat[];
@@ -69,14 +69,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
-          chatStoreLog('💬 [ChatStore] Snapshot received:', {
+          chatStoreSnapshotLog('💬 [ChatStore] Snapshot received:', {
             size: snapshot.size,
             empty: snapshot.empty,
           });
 
           const chats: Chat[] = snapshot.docs.map((doc) => {
             const data = doc.data();
-            chatStoreLog('💬 [ChatStore] Processing chat document:', {
+            chatStoreSnapshotLog('💬 [ChatStore] Processing chat document:', {
               id: doc.id,
               type: data.type,
               participants: data.participants,
@@ -104,7 +104,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             };
           });
 
-          chatStoreLog('💬 [ChatStore] Setting chats in store:', {
+          chatStoreSnapshotLog('💬 [ChatStore] Setting chats in store:', {
             count: chats.length,
             chatIds: chats.map(c => c.id),
           });

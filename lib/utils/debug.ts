@@ -6,11 +6,13 @@
  */
 
 // Enable/disable debug logs (only affects development mode)
-export const DEBUG_ENABLED = true;
+export const DEBUG_ENABLED = false;
 
 // Feature-specific debug flags
-export const chatStoreDebug = false; // Chat store operations (snapshot, processing, setting chats)
+export const chatStoreSnapshotDebug = false; // Firestore snapshot processing
+export const chatStoreSendDebug = true; // Message send/retry lifecycle
 export const chatScreenDebug = false; // Chat screen rendering and lifecycle
+export const aiInsightCardDebug = false; // AI insight card rendering details
 
 /**
  * Debug logger that only logs when DEBUG_ENABLED is true and in DEV mode
@@ -31,10 +33,19 @@ export const debugWarn = (...args: any[]) => {
 };
 
 /**
- * Chat store debug logger - only logs when chatStoreDebug is enabled
+ * Chat store snapshot logger - only logs when chatStoreSnapshotDebug is enabled
  */
-export const chatStoreLog = (...args: any[]) => {
-  if (__DEV__ && chatStoreDebug) {
+export const chatStoreSnapshotLog = (...args: any[]) => {
+  if (__DEV__ && chatStoreSnapshotDebug) {
+    console.log(...args);
+  }
+};
+
+/**
+ * Chat store send logger - only logs when chatStoreSendDebug is enabled
+ */
+export const chatStoreSendLog = (...args: any[]) => {
+  if (__DEV__ && chatStoreSendDebug) {
     console.log(...args);
   }
 };
