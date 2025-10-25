@@ -21,6 +21,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { firestore } from '../firebase/config';
 import { Message } from '@/types/message';
 import { performanceMonitor } from '@/lib/utils/performance';
+import { extractCalendarEvents } from '@/lib/ai/calendar';
 
 interface MessageState {
   messages: { [chatId: string]: Message[] }; // Keyed by chatId
@@ -79,6 +80,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               readBy: data.readBy || [],
               imageUrl: data.imageUrl,
               type: data.type || 'text',
+              aiExtraction: data.aiExtraction ? {
+                calendarEvents: data.aiExtraction.calendarEvents || [],
+                extractedAt: data.aiExtraction.extractedAt?.toDate(),
+              } : undefined,
             };
           }).reverse(); // Reverse to get chronological order (oldest first)
 
@@ -183,6 +188,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           readBy: data.readBy || [],
           imageUrl: data.imageUrl,
           type: data.type || 'text',
+          aiExtraction: data.aiExtraction ? {
+            calendarEvents: data.aiExtraction.calendarEvents || [],
+            extractedAt: data.aiExtraction.extractedAt?.toDate(),
+          } : undefined,
         };
       }).reverse(); // Reverse to chronological order
 
@@ -287,7 +296,33 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         type: 'text',
       };
 
-      await addDoc(messagesRef, messageData);
+      const docRef = await addDoc(messagesRef, messageData);
+      const messageId = docRef.id;
+
+      // 3.5. Trigger AI calendar extraction (fire-and-forget, non-blocking)
+      // This runs in the background and doesn't block the message send flow
+      console.log('[AI] 🚀 Starting calendar extraction for message:', messageId);
+      extractCalendarEvents(text)
+        .then((events) => {
+          console.log('[AI] ✅ Extraction completed, found events:', events.length);
+          if (events.length > 0) {
+            console.log(`[AI] 📅 Extracted ${events.length} calendar event(s):`, events);
+            console.log(`[AI] 💾 Updating message ${messageId} with extraction data`);
+            // Update the message document with AI extraction data
+            const messageRef = doc(firestore, 'chats', chatId, 'messages', messageId);
+            return updateDoc(messageRef, {
+              'aiExtraction.calendarEvents': events,
+              'aiExtraction.extractedAt': serverTimestamp(),
+            });
+          } else {
+            console.log('[AI] ℹ️ No calendar events found in message');
+          }
+        })
+        .catch((err) => {
+          // Log error but don't fail the message send
+          console.error('[AI] ❌ Calendar extraction failed (non-critical):', err);
+          console.error('[AI] Error details:', err.message, err.stack);
+        });
 
       // 4. Update chat's lastMessage and increment unread count for other participants
       const chatRef = doc(firestore, 'chats', chatId);

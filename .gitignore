@@ -53,6 +53,11 @@ ios_build*.log
 eas_build.log
 codegen_manual.log
 
+# Firebase debug logs
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
 # iOS - ignore build artifacts but keep source
 /ios/build/
 /ios/Pods/

@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useChatStore } from '@/lib/store/chatStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Chat } from '@/types/chat';
-import { debugLog } from '@/lib/utils/debug';
+import { debugLog, chatScreenLog } from '@/lib/utils/debug';
 
 export default function ChatsScreen() {
   // Use proper Zustand selectors for reliable re-renders
@@ -13,7 +13,7 @@ export default function ChatsScreen() {
   const subscribeToChats = useChatStore((state) => state.subscribeToChats);
   const user = useAuthStore((state) => state.user);
 
-  debugLog('💬 [ChatsScreen] Render:', {
+  chatScreenLog('💬 [ChatsScreen] Render:', {
     hasUser: !!user,
     userId: user?.uid,
     chatsCount: chats.length,
@@ -22,22 +22,22 @@ export default function ChatsScreen() {
 
   // Set up real-time chat subscription
   useEffect(() => {
-    debugLog('💬 [ChatsScreen] useEffect triggered:', {
+    chatScreenLog('💬 [ChatsScreen] useEffect triggered:', {
       hasUser: !!user,
       userId: user?.uid,
     });
 
     if (!user) {
-      debugLog('💬 [ChatsScreen] No user, skipping subscription');
+      chatScreenLog('💬 [ChatsScreen] No user, skipping subscription');
       return;
     }
 
-    debugLog('💬 [ChatsScreen] Calling subscribeToChats for user:', user.uid);
+    chatScreenLog('💬 [ChatsScreen] Calling subscribeToChats for user:', user.uid);
     const unsubscribe = subscribeToChats(user.uid);
 
     // Cleanup on unmount
     return () => {
-      debugLog('💬 [ChatsScreen] Cleaning up chat subscription');
+      chatScreenLog('💬 [ChatsScreen] Cleaning up chat subscription');
       unsubscribe();
     };
   }, [user, subscribeToChats]);

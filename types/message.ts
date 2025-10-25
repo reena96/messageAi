@@ -1,3 +1,5 @@
+import { CalendarEvent } from '@/lib/ai/calendar';
+
 export interface Message {
   id: string;
   chatId: string;
@@ -16,4 +18,10 @@ export interface Message {
   // Optional features
   imageUrl?: string;
   type?: 'text' | 'image';
+
+  // AI extraction
+  aiExtraction?: {
+    calendarEvents?: CalendarEvent[];
+    extractedAt?: Date;
+  };
 }
