@@ -13,3 +13,4 @@ export {decisionExtraction} from "./ai/decisionExtraction";
 export {priorityDetection} from "./ai/priorityDetection";
 export {trackRSVP} from "./ai/rsvpTracking";
 export {extractDeadlines} from "./ai/deadlineExtraction";
+export {conversationSummary} from "./ai/conversationSummary";

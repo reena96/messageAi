@@ -9,8 +9,9 @@ import {
   Platform,
   SafeAreaView,
   LayoutChangeEvent,
+  ViewToken,
 } from 'react-native';
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -24,6 +25,8 @@ import TypingIndicator from '@/components/messages/TypingIndicator';
 import AIInsightCard from '@/components/messages/AIInsightCard';
 import BackButton from '@/components/navigation/BackButton';
 import { MessageRow } from '@/types/messageRow';
+import { ContextSummaryCard } from '@/components/messages/ContextSummaryCard';
+import { requestConversationSummary, ConversationSummaryMessage } from '@/lib/ai/summary';
 
 const estimateRowHeight = (row: MessageRow): number => {
   switch (row.type) {
@@ -31,11 +34,66 @@ const estimateRowHeight = (row: MessageRow): number => {
       return 40;
     case 'unread-separator':
       return 56;
+    case 'summary':
+      return row.collapsed ? 58 : 160;
     case 'message':
     default:
       return 96;
   }
 };
+
+const RECENT_COUNT = 25;
+
+type SummaryPresetId = 'recent25' | 'today' | 'week' | 'twoWeeks' | 'month';
+
+type SummaryWindow =
+  | { type: 'count'; count: number }
+  | { type: 'time'; durationMs: number; alignToDayStart?: boolean };
+
+interface SummaryPreset {
+  id: SummaryPresetId;
+  label: string;
+  window: SummaryWindow;
+}
+
+interface SummaryRange {
+  startId: string | null;
+  endId: string | null;
+  startTimestamp: Date | null;
+  endTimestamp: Date | null;
+}
+
+type SummaryStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+interface PresetSummaryState {
+  status: SummaryStatus;
+  summary: string | null;
+  error?: string;
+  signature: string | null;
+  lastUpdated: number | null;
+  messageCount: number;
+  range: SummaryRange;
+}
+
+const SUMMARY_PRESETS: SummaryPreset[] = [
+  { id: 'recent25', label: 'Last 25', window: { type: 'count', count: RECENT_COUNT } },
+  {
+    id: 'today',
+    label: 'Today',
+    window: { type: 'time', durationMs: 24 * 60 * 60 * 1000, alignToDayStart: true },
+  },
+  { id: 'week', label: '7 Days', window: { type: 'time', durationMs: 7 * 24 * 60 * 60 * 1000 } },
+  {
+    id: 'twoWeeks',
+    label: '14 Days',
+    window: { type: 'time', durationMs: 14 * 24 * 60 * 60 * 1000 },
+  },
+  {
+    id: 'month',
+    label: '30 Days',
+    window: { type: 'time', durationMs: 30 * 24 * 60 * 60 * 1000 },
+  },
+];
 
 export default function ChatScreen() {
   const { id: chatId } = useLocalSearchParams<{ id: string }>();
@@ -66,17 +124,284 @@ export default function ChatScreen() {
   const markedAsReadRef = useRef<Set<string>>(new Set()); // Track which messages we've already marked as read
   const previousMessageIdsRef = useRef<string[]>([]); // Track previous message ids for new message detection
   const initialLoadRef = useRef(true);
+  const topVisibleRowRef = useRef<string | null>(null);
+  const summaryRowId = 'summary-row';
+  const initialAnchorAppliedRef = useRef(false);
+  const summaryRequestsRef = useRef<Record<SummaryPresetId, number>>({
+    recent25: 0,
+    today: 0,
+    week: 0,
+    twoWeeks: 0,
+    month: 0,
+  });
+  const createInitialPresetState = (): PresetSummaryState => ({
+    status: 'idle',
+    summary: null,
+    error: undefined,
+    signature: null,
+    lastUpdated: null,
+    messageCount: 0,
+    range: {
+      startId: null,
+      endId: null,
+      startTimestamp: null,
+      endTimestamp: null,
+    },
+  });
+  const [presetSummaries, setPresetSummaries] = useState<
+    Record<SummaryPresetId, PresetSummaryState>
+  >(() => {
+    const initialState = {} as Record<SummaryPresetId, PresetSummaryState>;
+    SUMMARY_PRESETS.forEach((preset) => {
+      initialState[preset.id] = createInitialPresetState();
+    });
+    return initialState;
+  });
+  const presetSummariesRef = useRef(presetSummaries);
+  const [selectedPreset, setSelectedPreset] = useState<SummaryPresetId>('recent25');
+  const [summaryCollapsed, setSummaryCollapsed] = useState(false);
+  const [summaryActive, setSummaryActive] = useState(false);
+
+  useEffect(() => {
+    presetSummariesRef.current = presetSummaries;
+  }, [presetSummaries]);
 
   const resolvedChatId = chatId ?? '__missing__';
   const {
-    rows: messageRows,
+    rows: baseRows,
     messages: chatMessages,
     unreadCount,
+    firstUnreadMessageId,
   } = useChatMessageView(resolvedChatId, user?.uid);
   const loadingOlderForChat = chatId ? loadingOlder[chatId] : false;
   const hasMoreForChat = chatId ? hasMoreMessages[chatId] : false;
   const rowHeightsRef = useRef<Map<string, number>>(new Map());
   const [layoutVersion, setLayoutVersion] = useState(0);
+  const chronologicalMessages = useMemo(
+    () =>
+      [...chatMessages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()),
+    [chatMessages]
+  );
+  const currentChat = useMemo(
+    () => chats.find((chat) => chat.id === chatId),
+    [chats, chatId]
+  );
+
+  const selectedSummaryState = presetSummaries[selectedPreset];
+  const summaryStatus = selectedSummaryState?.status ?? 'idle';
+  const summaryText = selectedSummaryState?.summary ?? null;
+  const summaryError = selectedSummaryState?.error;
+
+  const summaryOptions = useMemo(
+    () =>
+      SUMMARY_PRESETS.map((preset) => {
+        const state = presetSummaries[preset.id];
+        return {
+          id: preset.id,
+          label: preset.label,
+          status: state?.status ?? 'idle',
+          summary: state?.summary ?? null,
+          error: state?.error,
+          lastUpdated: state?.lastUpdated ?? null,
+          messageCount: state?.messageCount ?? 0,
+        };
+      }),
+    [presetSummaries]
+  );
+
+  const computePresetDataset = useCallback(
+    (presetId: SummaryPresetId) => {
+      const preset = SUMMARY_PRESETS.find((item) => item.id === presetId);
+      if (!preset || chronologicalMessages.length === 0) {
+        return null;
+      }
+
+      let slice = chronologicalMessages;
+
+      if (preset.window.type === 'count') {
+        const startIndex = Math.max(0, chronologicalMessages.length - preset.window.count);
+        slice = chronologicalMessages.slice(startIndex);
+      } else if (preset.window.type === 'time') {
+        const now = new Date();
+        let cutoff = new Date(now.getTime() - preset.window.durationMs);
+        if (preset.window.alignToDayStart) {
+          const startOfDay = new Date();
+          startOfDay.setHours(0, 0, 0, 0);
+          cutoff = startOfDay;
+        }
+        slice = chronologicalMessages.filter((msg) => msg.timestamp >= cutoff);
+      }
+
+      if (slice.length === 0) {
+        return null;
+      }
+
+      const participantDetails = currentChat?.participantDetails ?? {};
+
+      const formattedMessages: ConversationSummaryMessage[] = slice
+        .map((msg) => {
+          const raw = (msg.text ?? '').trim();
+          const text =
+            raw.length > 0 ? raw : msg.type === 'image' ? '[Image]' : '[Message]';
+
+          if (!text) {
+            return null;
+          }
+
+          const senderLabel =
+            msg.senderId === user?.uid
+              ? 'You'
+              : participantDetails[msg.senderId]?.displayName || msg.senderId;
+
+          return {
+            text,
+            sender: senderLabel,
+            timestamp: msg.timestamp.toISOString(),
+          };
+        })
+        .filter((entry): entry is ConversationSummaryMessage => Boolean(entry?.text));
+
+      if (formattedMessages.length === 0) {
+        return null;
+      }
+
+      const startMessage = slice[0];
+      const endMessage = slice[slice.length - 1];
+
+      const signature = [
+        presetId,
+        startMessage?.id ?? 'none',
+        endMessage?.id ?? 'none',
+        formattedMessages.length,
+        endMessage?.timestamp.getTime() ?? 0,
+      ].join('|');
+
+      const range: SummaryRange = {
+        startId: startMessage?.id ?? null,
+        endId: endMessage?.id ?? null,
+        startTimestamp: startMessage?.timestamp ?? null,
+        endTimestamp: endMessage?.timestamp ?? null,
+      };
+
+      return {
+        preset,
+        messages: formattedMessages,
+        signature,
+        messageCount: formattedMessages.length,
+        range,
+      };
+    },
+    [chronologicalMessages, currentChat?.participantDetails, user?.uid]
+  );
+
+  const requestSummaryForPreset = useCallback(
+    async (presetId: SummaryPresetId, options?: { force?: boolean }) => {
+      const dataset = computePresetDataset(presetId);
+
+      if (!dataset) {
+        setPresetSummaries((prev) => ({
+          ...prev,
+          [presetId]: {
+            ...prev[presetId],
+            status: 'idle',
+            summary: null,
+            error: undefined,
+            signature: null,
+            messageCount: 0,
+            range: {
+              startId: null,
+              endId: null,
+              startTimestamp: null,
+              endTimestamp: null,
+            },
+          },
+        }));
+        return;
+      }
+
+      const currentState = presetSummariesRef.current[presetId];
+      const forceRefresh = options?.force ?? false;
+
+      if (
+        !forceRefresh &&
+        currentState &&
+        currentState.signature === dataset.signature &&
+        (currentState.status === 'ready' || currentState.status === 'loading')
+      ) {
+        return;
+      }
+
+      setPresetSummaries((prev) => ({
+        ...prev,
+        [presetId]: {
+          ...prev[presetId],
+          status: 'loading',
+          error: undefined,
+          signature: dataset.signature,
+          messageCount: dataset.messageCount,
+          range: dataset.range,
+        },
+      }));
+
+      const requestId = (summaryRequestsRef.current[presetId] ?? 0) + 1;
+      summaryRequestsRef.current[presetId] = requestId;
+
+      try {
+        const response = await requestConversationSummary({
+          messages: dataset.messages,
+        });
+
+        if (summaryRequestsRef.current[presetId] !== requestId) {
+          return;
+        }
+
+        setPresetSummaries((prev) => ({
+          ...prev,
+          [presetId]: {
+            ...prev[presetId],
+            status: response.summary ? 'ready' : 'error',
+            summary: response.summary,
+            error: response.summary ? undefined : response.error ?? 'Unable to load summary',
+            signature: dataset.signature,
+            messageCount: dataset.messageCount,
+            range: dataset.range,
+            lastUpdated: Date.now(),
+          },
+        }));
+      } catch (error) {
+        console.error('[ContextSummary] Failed to load summary', error);
+
+        if (summaryRequestsRef.current[presetId] !== requestId) {
+          return;
+        }
+
+        setPresetSummaries((prev) => ({
+          ...prev,
+          [presetId]: {
+            ...prev[presetId],
+            status: 'error',
+            summary: null,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            signature: dataset.signature,
+            messageCount: dataset.messageCount,
+            range: dataset.range,
+            lastUpdated: Date.now(),
+          },
+        }));
+      }
+    },
+    [computePresetDataset]
+  );
+
+  useEffect(() => {
+    if (chronologicalMessages.length === 0) {
+      return;
+    }
+
+    SUMMARY_PRESETS.forEach((preset) => {
+      requestSummaryForPreset(preset.id);
+    });
+  }, [chronologicalMessages, requestSummaryForPreset]);
 
   const handleRowLayout = (rowId: string) => (event: LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
@@ -87,6 +412,32 @@ export default function ChatScreen() {
       setLayoutVersion((version) => version + 1);
     }
   };
+
+  const messageRows = useMemo(() => {
+    if (!summaryActive) {
+      return baseRows;
+    }
+
+    const summaryRow: MessageRow = {
+      type: 'summary',
+      id: summaryRowId,
+      summary: summaryText,
+      status: summaryStatus,
+      collapsed: summaryCollapsed,
+      error: summaryError,
+    };
+
+    const separatorIndex = baseRows.findIndex((row) => row.type === 'unread-separator');
+    if (separatorIndex >= 0) {
+      return [
+        ...baseRows.slice(0, separatorIndex),
+        summaryRow,
+        ...baseRows.slice(separatorIndex),
+      ];
+    }
+
+    return [summaryRow, ...baseRows];
+  }, [baseRows, summaryActive, summaryCollapsed, summaryError, summaryStatus, summaryText]);
 
   const layoutMap = useMemo(() => {
     const offsets = new Map<string, number>();
@@ -103,6 +454,124 @@ export default function ChatScreen() {
     return { offsets, lengths };
   }, [messageRows, layoutVersion]);
 
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 70,
+    minimumViewTime: 300,
+  });
+
+  const handleViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
+      if (!chatId || !user?.uid) return;
+
+      let summaryVisible = false;
+      let firstVisibleMessageId: string | null = null;
+      let lowestIndex = Number.POSITIVE_INFINITY;
+
+      viewableItems.forEach((token) => {
+        if (!token.isViewable) return;
+        const row = token.item as MessageRow | undefined;
+        if (!row) return;
+
+        if (typeof token.index === 'number' && token.index < lowestIndex) {
+          lowestIndex = token.index;
+        }
+
+        if (row.type === 'summary') {
+          summaryVisible = true;
+          return;
+        }
+
+        if (row.type === 'message') {
+          if (!firstVisibleMessageId) {
+            firstVisibleMessageId = row.id;
+          }
+
+          const msg = row.message;
+          const alreadyTracked = markedAsReadRef.current.has(msg.id);
+          if (
+            msg.senderId !== user.uid &&
+            !msg.readBy.includes(user.uid) &&
+            !alreadyTracked
+          ) {
+            markedAsReadRef.current.add(msg.id);
+            markAsRead(chatId, msg.id, user.uid);
+          }
+        }
+      });
+
+      if (firstVisibleMessageId) {
+        topVisibleRowRef.current = firstVisibleMessageId;
+      }
+
+      if (summaryActive && !summaryVisible) {
+        const summaryIndex = messageRows.findIndex((row) => row.id === summaryRowId);
+        if (
+          summaryIndex !== -1 &&
+          lowestIndex !== Number.POSITIVE_INFINITY &&
+          lowestIndex > summaryIndex
+        ) {
+          setSummaryActive(false);
+          setSummaryCollapsed(false);
+        }
+      }
+    },
+    [chatId, markAsRead, messageRows, summaryActive, summaryRowId, user?.uid]
+  );
+
+  const handleManualSummary = useCallback(() => {
+    if (summaryActive) {
+      setSummaryActive(false);
+      setSummaryCollapsed(false);
+      return;
+    }
+
+    setSummaryActive(true);
+    setSummaryCollapsed(false);
+
+    const currentState = presetSummariesRef.current[selectedPreset];
+    if (!currentState || currentState.status === 'idle' || currentState.status === 'error') {
+      requestSummaryForPreset(selectedPreset, { force: currentState?.status === 'error' });
+    }
+  }, [requestSummaryForPreset, selectedPreset, summaryActive]);
+
+  const handleSelectPreset = useCallback(
+    (presetId: SummaryPresetId) => {
+      setSelectedPreset(presetId);
+      const state = presetSummariesRef.current[presetId];
+      if (!state || state.status === 'idle' || state.status === 'error') {
+        requestSummaryForPreset(presetId, { force: state?.status === 'error' });
+      }
+    },
+    [requestSummaryForPreset]
+  );
+
+  useEffect(() => {
+    if (initialAnchorAppliedRef.current) return;
+    if (!flatListRef.current) return;
+    if (messageRows.length === 0) return;
+
+    const summaryIndex = messageRows.findIndex((row) => row.id === summaryRowId);
+    const unreadIndex = messageRows.findIndex((row) => row.type === 'unread-separator');
+    const targetIndex = summaryIndex !== -1 ? summaryIndex : unreadIndex;
+
+    if (targetIndex === -1) {
+      if (unreadCount === 0) {
+        initialAnchorAppliedRef.current = true;
+      }
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      try {
+        flatListRef.current?.scrollToIndex({ index: targetIndex, animated: false });
+      } catch (error) {
+        console.warn('Failed to scroll to unread anchor', error);
+      } finally {
+        initialAnchorAppliedRef.current = true;
+      }
+    });
+  }, [messageRows, summaryRowId, unreadCount]);
+
   const getItemLayout = (_data: MessageRow[] | null | undefined, index: number) => {
     const row = messageRows[index];
     if (!row) {
@@ -112,9 +581,6 @@ export default function ChatScreen() {
     const offset = layoutMap.offsets.get(row.id) ?? 0;
     return { length, offset, index };
   };
-
-  // Get current chat details
-  const currentChat = chats.find((chat) => chat.id === chatId);
 
   // Get chat display name
   const getChatDisplayName = () => {
@@ -215,27 +681,6 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId, user?.uid]); // Only re-run when chat or user changes
 
-  // Mark unread messages as read (only mark new messages, not all messages every time)
-  useEffect(() => {
-    if (!user || chatMessages.length === 0) return;
-
-    chatMessages.forEach((msg) => {
-      // Skip if we've already marked this message as read
-      if (markedAsReadRef.current.has(msg.id)) return;
-
-      // Skip if it's our own message or already read by us
-      if (msg.senderId === user.uid || msg.readBy.includes(user.uid)) {
-        markedAsReadRef.current.add(msg.id);
-        return;
-      }
-
-      // Mark as read and track it
-      markAsRead(chatId, msg.id, user.uid);
-      markedAsReadRef.current.add(msg.id);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatMessages, user?.uid, chatId]); // Zustand function removed from deps
-
   // Clear state when switching chats
   useEffect(() => {
     markedAsReadRef.current.clear();
@@ -243,6 +688,20 @@ export default function ChatScreen() {
     initialLoadRef.current = true;
     setIsAtBottom(true);
     setNewMessageCount(0);
+    SUMMARY_PRESETS.forEach((preset) => {
+      summaryRequestsRef.current[preset.id] = 0;
+    });
+    const freshState = {} as Record<SummaryPresetId, PresetSummaryState>;
+    SUMMARY_PRESETS.forEach((preset) => {
+      freshState[preset.id] = createInitialPresetState();
+    });
+    setPresetSummaries(freshState);
+    presetSummariesRef.current = freshState;
+    setSelectedPreset('recent25');
+    setSummaryActive(false);
+    setSummaryCollapsed(false);
+    topVisibleRowRef.current = null;
+    initialAnchorAppliedRef.current = false;
   }, [chatId]);
 
   const scrollToBottom = (animated = true) => {
@@ -396,6 +855,38 @@ export default function ChatScreen() {
           headerBackTitle: 'Back',
           headerTintColor: '#007AFF',
           headerLeft: () => <BackButton />,
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={handleManualSummary}
+              style={[
+                styles.contextButton,
+                summaryActive && styles.contextButtonActive,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Generate AI summary context"
+            >
+              <Ionicons
+                name="sparkles"
+                size={16}
+                color={
+                  summaryActive
+                    ? '#FFFFFF'
+                    : summaryStatus === 'loading'
+                    ? '#8E8E93'
+                    : '#0A84FF'
+                }
+                style={{ marginRight: 6 }}
+              />
+              <Text
+                style={[
+                  styles.contextButtonText,
+                  summaryActive && styles.contextButtonTextActive,
+                ]}
+              >
+                Context
+              </Text>
+            </TouchableOpacity>
+          ),
         }}
       />
 
@@ -415,6 +906,21 @@ export default function ChatScreen() {
                   <View style={styles.dayHeaderLine} />
                   <Text style={styles.dayHeaderText}>{item.label}</Text>
                   <View style={styles.dayHeaderLine} />
+                </View>
+              );
+            }
+
+            if (item.type === 'summary') {
+              return (
+                <View onLayout={handleRowLayout(item.id)}>
+                  <ContextSummaryCard
+                    collapsed={item.collapsed}
+                    selectedPreset={selectedPreset}
+                    options={summaryOptions}
+                    onToggle={() => setSummaryCollapsed((prev) => !prev)}
+                    onSelectPreset={handleSelectPreset}
+                    onRetry={(presetId) => requestSummaryForPreset(presetId, { force: true })}
+                  />
                 </View>
               );
             }
@@ -462,6 +968,8 @@ export default function ChatScreen() {
           scrollEventThrottle={16}
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.1}
+          onViewableItemsChanged={handleViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig.current}
           getItemLayout={getItemLayout}
           initialNumToRender={40}
           maxToRenderPerBatch={20}
@@ -535,6 +1043,25 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ECE5DD', // WhatsApp beige background
+  },
+  contextButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F5F8FF',
+  },
+  contextButtonActive: {
+    backgroundColor: '#0A84FF',
+  },
+  contextButtonText: {
+    color: '#0A84FF',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  contextButtonTextActive: {
+    color: '#FFFFFF',
   },
   flex: {
     flex: 1,

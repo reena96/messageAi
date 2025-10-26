@@ -12,7 +12,7 @@ export const DEBUG_ENABLED = false;
 export const chatStoreSnapshotDebug = false; // Firestore snapshot processing
 export const chatStoreSendDebug = true; // Message send/retry lifecycle
 export const chatScreenDebug = false; // Chat screen rendering and lifecycle
-export const aiInsightCardDebug = false; // AI insight card rendering details
+export const aiInsightCardDebug = true; // AI insight card rendering details
 
 /**
  * Debug logger that only logs when DEBUG_ENABLED is true and in DEV mode

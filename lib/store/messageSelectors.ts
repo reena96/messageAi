@@ -54,16 +54,32 @@ export const useChatMessageView = (
   return useMemo(() => {
     const rows: MessageRow[] = [];
     if (messages.length === 0) {
-      return { rows, messages, unreadCount: 0 };
+      return {
+        rows,
+        messages,
+        unreadCount: 0,
+        firstUnreadMessageId: null,
+        firstUnreadIndex: null,
+      };
     }
 
-    const unreadCount = currentUserId
-      ? messages.filter(
-          (message) =>
-            message.senderId !== currentUserId &&
-            !message.readBy.includes(currentUserId)
-        ).length
-      : 0;
+    let unreadCount = 0;
+    let firstUnreadIndex: number | null = null;
+
+    if (currentUserId) {
+      messages.forEach((message, index) => {
+        const isUnread =
+          message.senderId !== currentUserId &&
+          !message.readBy.includes(currentUserId);
+
+        if (isUnread) {
+          unreadCount += 1;
+          if (firstUnreadIndex === null) {
+            firstUnreadIndex = index;
+          }
+        }
+      });
+    }
 
     let unreadInserted = false;
     let lastDateKey: string | null = null;
@@ -85,7 +101,13 @@ export const useChatMessageView = (
         message.senderId !== currentUserId &&
         !message.readBy.includes(currentUserId);
 
-      if (isUnread && unreadCount > 0 && !unreadInserted) {
+      const shouldInsertSeparator =
+        unreadCount > 0 &&
+        !unreadInserted &&
+        firstUnreadIndex !== null &&
+        index === firstUnreadIndex;
+
+      if (shouldInsertSeparator) {
         rows.push({
           type: 'unread-separator',
           id: `unread-${chatId}`,
@@ -116,6 +138,15 @@ export const useChatMessageView = (
       });
     });
 
-    return { rows, messages, unreadCount };
+    const firstUnreadMessageId =
+      firstUnreadIndex !== null ? messages[firstUnreadIndex]?.id ?? null : null;
+
+    return {
+      rows,
+      messages,
+      unreadCount,
+      firstUnreadMessageId,
+      firstUnreadIndex,
+    };
   }, [chatId, currentUserId, messages]);
 };

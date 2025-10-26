@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import app from '@/lib/firebase/config';
+import app, { FUNCTIONS_REGION } from '@/lib/firebase/config';
 
 /**
  * Priority interface
@@ -13,7 +13,7 @@ export interface Priority {
 }
 
 // Initialize Firebase Functions
-const functions = getFunctions(app);
+const functions = getFunctions(app, FUNCTIONS_REGION);
 
 /**
  * Detects message priority using AI

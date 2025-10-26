@@ -33,5 +33,8 @@ const firestore = getFirestore(app);
 // Initialize Storage
 const storage = getStorage(app);
 
+// Cloud Functions region
+export const FUNCTIONS_REGION = 'us-west1';
+
 export { auth, firestore, storage };
 export default app;

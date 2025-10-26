@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import {defineSecret} from "firebase-functions/params";
 import OpenAI from "openai";
+import {FUNCTIONS_REGION} from "../config";
 
 // Define the OpenAI API key secret
 const openaiApiKey = defineSecret("OPENAI_API_KEY");
@@ -79,6 +80,7 @@ Output: {"level": "low", "reason": "Casual social sharing", "urgency": false, "c
  * Classifies message priority for busy parents using OpenAI GPT-4 Turbo
  */
 export const priorityDetection = functions
+  .region(FUNCTIONS_REGION)
   .runWith({
     secrets: [openaiApiKey],
     timeoutSeconds: 30,

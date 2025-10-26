@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import app from '@/lib/firebase/config';
+import app, { FUNCTIONS_REGION } from '@/lib/firebase/config';
 
 /**
  * Decision interface
@@ -14,7 +14,7 @@ export interface Decision {
 }
 
 // Initialize Firebase Functions
-const functions = getFunctions(app);
+const functions = getFunctions(app, FUNCTIONS_REGION);
 
 /**
  * Extracts decisions from text using AI

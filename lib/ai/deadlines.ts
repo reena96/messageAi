@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import app from '@/lib/firebase/config';
+import app, { FUNCTIONS_REGION } from '@/lib/firebase/config';
 
 /**
  * Deadline interface
@@ -16,7 +16,7 @@ export interface Deadline {
 }
 
 // Initialize Firebase Functions
-const functions = getFunctions(app);
+const functions = getFunctions(app, FUNCTIONS_REGION);
 
 /**
  * Extracts deadlines from text using AI

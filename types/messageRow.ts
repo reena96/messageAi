@@ -13,6 +13,14 @@ export type MessageRow =
       unreadCount: number;
     }
   | {
+      type: 'summary';
+      id: string;
+      summary: string | null;
+      status: 'idle' | 'loading' | 'ready' | 'error';
+      collapsed: boolean;
+      error?: string;
+    }
+  | {
       type: 'message';
       id: string;
       message: Message;
@@ -25,4 +33,6 @@ export interface MessageListViewModel {
   rows: MessageRow[];
   messages: Message[];
   unreadCount: number;
+  firstUnreadMessageId: string | null;
+  firstUnreadIndex: number | null;
 }
