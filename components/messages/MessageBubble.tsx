@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Message } from '@/types/message';
 import { useMessageStore } from '@/lib/store/messageStore';
@@ -12,6 +12,7 @@ interface MessageBubbleProps {
   isGroupTop?: boolean;
   isGroupBottom?: boolean;
   isOptimistic?: boolean;
+  onLongPress?: () => void;
 }
 
 export default function MessageBubble({
@@ -23,6 +24,7 @@ export default function MessageBubble({
   isGroupTop = true,
   isGroupBottom = true,
   isOptimistic = false,
+  onLongPress,
 }: MessageBubbleProps) {
   const retryMessage = useMessageStore((state) => state.retryMessage);
 
@@ -121,6 +123,28 @@ export default function MessageBubble({
     }
   };
 
+  // If message is deleted, show WhatsApp-style placeholder
+  if (message.deletedAt) {
+    const deletedText = message.deletedBy === currentUserId
+      ? 'You deleted this message'
+      : 'This message was deleted';
+
+    return (
+      <View style={[
+        styles.container,
+        isOwnMessage && styles.ownMessageContainer,
+      ]}>
+        <View style={[
+          styles.deletedPlaceholder,
+          isOwnMessage && styles.deletedPlaceholderOwn,
+        ]}>
+          <Ionicons name="ban" size={12} color="#8E8E93" style={{ marginRight: 4 }} />
+          <Text style={styles.deletedPlaceholderText}>{deletedText}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={[
       styles.container,
@@ -131,7 +155,9 @@ export default function MessageBubble({
         <View style={styles.avatarPlaceholder} />
       )}
 
-      <View
+      <Pressable
+        onLongPress={isOwnMessage ? onLongPress : undefined}
+        delayLongPress={500}
         style={[
           styles.bubble,
           isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble,
@@ -148,11 +174,22 @@ export default function MessageBubble({
         accessibilityLiveRegion={accessibilityLiveRegion}
       >
         <Text
-          style={[styles.text, isOwnMessage ? styles.ownMessageText : styles.otherMessageText]}
+          style={[
+            styles.text,
+            isOwnMessage ? styles.ownMessageText : styles.otherMessageText,
+          ]}
         >
           {message.text}
         </Text>
         <View style={styles.footer}>
+          {message.editedAt && (
+            <Text style={[
+              styles.editedLabel,
+              isOwnMessage ? styles.ownTimestamp : styles.otherTimestamp
+            ]}>
+              edited
+            </Text>
+          )}
           <Text style={[
             styles.timestamp,
             isOwnMessage ? styles.ownTimestamp : styles.otherTimestamp
@@ -180,7 +217,7 @@ export default function MessageBubble({
         {actualStatus === 'failed' && isOwnMessage && message.error && (
           <Text style={styles.errorText}>{message.error}</Text>
         )}
-      </View>
+      </Pressable>
 
       {isOwnMessage && showAvatar && (
         <View style={styles.avatarPlaceholder} />
@@ -282,6 +319,26 @@ const styles = StyleSheet.create({
   },
   statusIcon: {
     marginLeft: 2,
+  },
+  editedLabel: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    marginRight: 4,
+  },
+  deletedPlaceholder: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginVertical: 2,
+  },
+  deletedPlaceholderOwn: {
+    alignSelf: 'flex-end',
+  },
+  deletedPlaceholderText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: '#8E8E93',
   },
   retryButton: {
     marginTop: 8,

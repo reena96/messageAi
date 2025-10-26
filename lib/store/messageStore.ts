@@ -404,6 +404,9 @@ export interface MessageState {
       | ((prev: UnreadUIState) => Partial<UnreadUIState> | UnreadUIState)
   ) => void;
   resetUnreadUIState: (chatId: string) => void;
+  editMessage: (chatId: string, messageId: string, newText: string) => Promise<void>;
+  deleteMessageForMe: (chatId: string, messageId: string) => Promise<void>;
+  deleteMessageForEveryone: (chatId: string, messageId: string, userId: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -1376,6 +1379,56 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       delete next[chatId];
       return { unreadUI: next };
     });
+  },
+
+  // Edit message
+  editMessage: async (chatId, messageId, newText) => {
+    try {
+      const messageRef = doc(firestore, 'chats', chatId, 'messages', messageId);
+      await updateDoc(messageRef, {
+        text: newText,
+        editedAt: serverTimestamp(),
+      });
+    } catch (error: any) {
+      console.error('Failed to edit message:', error);
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  // Delete message for me (hard delete from my view)
+  deleteMessageForMe: async (chatId, messageId) => {
+    try {
+      const messageRef = doc(firestore, 'chats', chatId, 'messages', messageId);
+      // In a real implementation, we'd add the user to a 'hiddenFor' array
+      // For now, we'll use a simple approach - mark it hidden for this user
+      const messageSnap = await getDoc(messageRef);
+      if (messageSnap.exists()) {
+        const currentHiddenFor = messageSnap.data().hiddenFor || [];
+        await updateDoc(messageRef, {
+          hiddenFor: arrayUnion(get().messages[chatId]?.[0]?.senderId || ''),
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to delete message for me:', error);
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  // Delete message for everyone (soft delete - shows placeholder)
+  deleteMessageForEveryone: async (chatId, messageId, userId) => {
+    try {
+      const messageRef = doc(firestore, 'chats', chatId, 'messages', messageId);
+      await updateDoc(messageRef, {
+        deletedAt: serverTimestamp(),
+        deletedBy: userId,
+      });
+    } catch (error: any) {
+      console.error('Failed to delete message for everyone:', error);
+      set({ error: error.message });
+      throw error;
+    }
   },
 
   clearError: () => set({ error: null }),

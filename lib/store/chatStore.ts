@@ -8,6 +8,11 @@ import {
   onSnapshot,
   addDoc,
   getDocs,
+  doc,
+  getDoc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
   serverTimestamp,
   Unsubscribe,
   Timestamp
@@ -35,6 +40,8 @@ interface ChatState {
     currentUserDetails: { displayName: string; photoURL?: string },
     participantDetails: { [userId: string]: { displayName: string; photoURL?: string } }
   ) => Promise<string>;
+  addParticipant: (chatId: string, email: string) => Promise<void>;
+  removeParticipant: (chatId: string, userId: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -218,6 +225,89 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const docRef = await addDoc(chatsRef, chatData);
       set({ loading: false });
       return docRef.id;
+    } catch (error: any) {
+      set({ loading: false, error: error.message });
+      throw error;
+    }
+  },
+
+  // Add participant to chat
+  addParticipant: async (chatId: string, email: string) => {
+    try {
+      set({ loading: true, error: null });
+
+      // Find user by email
+      const usersRef = collection(firestore, 'users');
+      const q = query(usersRef, where('email', '==', email.toLowerCase()));
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        throw new Error('No user found with this email address');
+      }
+
+      const userDoc = snapshot.docs[0];
+      const userData = userDoc.data();
+      const userId = userDoc.id;
+
+      // Get chat document
+      const chatRef = doc(firestore, 'chats', chatId);
+      const chatSnap = await getDoc(chatRef);
+
+      if (!chatSnap.exists()) {
+        throw new Error('Chat not found');
+      }
+
+      const chatData = chatSnap.data();
+
+      // Check if user is already a participant
+      if (chatData.participants.includes(userId)) {
+        throw new Error('User is already a participant in this chat');
+      }
+
+      // Update chat document
+      await updateDoc(chatRef, {
+        participants: arrayUnion(userId),
+        [`participantDetails.${userId}`]: {
+          displayName: userData.displayName || userData.email,
+          photoURL: userData.photoURL || null,
+        },
+        [`unreadCount.${userId}`]: 0,
+        updatedAt: serverTimestamp(),
+      });
+
+      set({ loading: false });
+    } catch (error: any) {
+      set({ loading: false, error: error.message });
+      throw error;
+    }
+  },
+
+  // Remove participant from chat
+  removeParticipant: async (chatId: string, userId: string) => {
+    try {
+      set({ loading: true, error: null });
+
+      const chatRef = doc(firestore, 'chats', chatId);
+      const chatSnap = await getDoc(chatRef);
+
+      if (!chatSnap.exists()) {
+        throw new Error('Chat not found');
+      }
+
+      const chatData = chatSnap.data();
+
+      // Check if user is a participant
+      if (!chatData.participants.includes(userId)) {
+        throw new Error('User is not a participant in this chat');
+      }
+
+      // Update chat document
+      await updateDoc(chatRef, {
+        participants: arrayRemove(userId),
+        updatedAt: serverTimestamp(),
+      });
+
+      set({ loading: false });
     } catch (error: any) {
       set({ loading: false, error: error.message });
       throw error;

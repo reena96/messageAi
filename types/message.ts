@@ -31,6 +31,12 @@ export interface Message {
   imageUrl?: string;
   type?: 'text' | 'image';
 
+  // Edit/Delete tracking
+  editedAt?: Date;
+  deletedAt?: Date;
+  deletedBy?: string;
+  hiddenFor?: string[]; // Array of user IDs who have hidden this message
+
   // AI extraction
   aiExtraction?: {
     calendarEvents?: CalendarEvent[];

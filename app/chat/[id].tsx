@@ -31,6 +31,10 @@ import { MessageRow } from '@/types/messageRow';
 import { AISummaryCard } from '@/components/messages/AISummaryCard';
 import { requestConversationSummary, ConversationSummaryMessage } from '@/lib/ai/summary';
 import { WHATSAPP_PALETTE, createThemedToggleStyles } from '@/styles/theme';
+import { ChatSettingsModal } from '@/components/chat/ChatSettingsModal';
+import { MessageContextMenu } from '@/components/messages/MessageContextMenu';
+import { EditMessageModal } from '@/components/messages/EditMessageModal';
+import { Alert } from 'react-native';
 
 const estimateRowHeight = (row: MessageRow): number => {
   switch (row.type) {
@@ -124,6 +128,11 @@ export default function ChatScreen() {
   );
 
   const chats = useChatStore((state) => state.chats);
+  const addParticipant = useChatStore((state) => state.addParticipant);
+  const removeParticipant = useChatStore((state) => state.removeParticipant);
+  const editMessage = useMessageStore((state) => state.editMessage);
+  const deleteMessageForMe = useMessageStore((state) => state.deleteMessageForMe);
+  const deleteMessageForEveryone = useMessageStore((state) => state.deleteMessageForEveryone);
 
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -176,6 +185,10 @@ export default function ChatScreen() {
   const [summaryRendered, setSummaryRendered] = useState(false);
   const [summaryInjected, setSummaryInjected] = useState(false);
   const [summaryCollapsed, setSummaryCollapsed] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [contextMenuVisible, setContextMenuVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<any | null>(null);
 
   useEffect(() => {
     presetSummariesRef.current = presetSummaries;
@@ -1041,13 +1054,100 @@ export default function ChatScreen() {
     return `last seen ${days}d ago`;
   };
 
+  const handleAddParticipant = async (email: string) => {
+    if (!chatId) return;
+    await addParticipant(chatId, email);
+  };
+
+  const handleRemoveParticipant = async (uid: string) => {
+    if (!chatId) return;
+    await removeParticipant(chatId, uid);
+  };
+
+  const getParticipants = () => {
+    if (!currentChat) return [];
+    return currentChat.participants.map((uid) => ({
+      uid,
+      displayName: currentChat.participantDetails[uid]?.displayName || uid,
+      photoURL: currentChat.participantDetails[uid]?.photoURL || null,
+    }));
+  };
+
+  const handleMessageLongPress = (message: any) => {
+    setSelectedMessage(message);
+    setContextMenuVisible(true);
+  };
+
+  const handleEditMessage = () => {
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async (newText: string) => {
+    if (!chatId || !selectedMessage) return;
+    try {
+      await editMessage(chatId, selectedMessage.id, newText);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to edit message');
+    }
+  };
+
+  const handleDeleteForMe = () => {
+    if (!chatId || !selectedMessage) return;
+
+    Alert.alert(
+      'Delete Message',
+      'Delete this message for yourself? It will still be visible to others.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete for Me',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteMessageForMe(chatId, selectedMessage.id);
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete message');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteForEveryone = () => {
+    if (!chatId || !selectedMessage || !user) return;
+
+    Alert.alert(
+      'Delete for Everyone',
+      'This message will be deleted for everyone in the chat.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete for Everyone',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteMessageForEveryone(chatId, selectedMessage.id, user.uid);
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete message');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen
         options={{
           headerShown: true,
           headerTitle: () => (
-            <View style={{ alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={() => setSettingsVisible(true)}
+              style={{ alignItems: 'center' }}
+              activeOpacity={0.6}
+            >
               <Text style={{ fontSize: 17, fontWeight: '600', color: '#000' }}>
                 {getChatDisplayName()}
               </Text>
@@ -1067,7 +1167,7 @@ export default function ChatScreen() {
                   </Text>
                 </View>
               )}
-            </View>
+            </TouchableOpacity>
           ),
           headerBackTitle: 'Back',
           headerTintColor: '#0C8466',
@@ -1167,6 +1267,7 @@ export default function ChatScreen() {
                   isGroupTop={item.isGroupTop}
                   isGroupBottom={item.isGroupBottom}
                   isOptimistic={item.isOptimistic}
+                  onLongPress={() => handleMessageLongPress(item.message)}
                 />
                 {item.message.aiExtraction && (
                   <AIInsightCard
@@ -1246,7 +1347,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={[
               styles.sendButton,
-              !inputText.trim() && styles.sendButtonDisabled,
+              inputText.trim() ? styles.sendButtonActive : styles.sendButtonInactive,
             ]}
             onPress={handleSend}
             disabled={!inputText.trim()}
@@ -1256,12 +1357,48 @@ export default function ChatScreen() {
             <Ionicons
               name={inputText.trim() ? 'paper-plane' : 'paper-plane-outline'}
               size={22}
-              color={inputText.trim() ? WHATSAPP_PALETTE.primary : '#A0B39E'}
+              color={inputText.trim() ? '#FFFFFF' : '#5F7E67'}
               style={styles.sendIcon}
             />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <ChatSettingsModal
+        visible={settingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        chatId={chatId || ''}
+        chatType={currentChat?.type || 'one-on-one'}
+        participants={getParticipants()}
+        currentUserId={user?.uid || ''}
+        createdBy={currentChat?.createdBy || ''}
+        onAddParticipant={handleAddParticipant}
+        onRemoveParticipant={handleRemoveParticipant}
+      />
+
+      <MessageContextMenu
+        visible={contextMenuVisible}
+        onClose={() => {
+          setContextMenuVisible(false);
+          setSelectedMessage(null);
+        }}
+        onEdit={handleEditMessage}
+        onDeleteForMe={handleDeleteForMe}
+        onDeleteForEveryone={handleDeleteForEveryone}
+        canEdit={selectedMessage && !selectedMessage.deletedAt}
+        canDelete={selectedMessage && !selectedMessage.deletedAt}
+        isOwnMessage={selectedMessage?.senderId === user?.uid}
+      />
+
+      <EditMessageModal
+        visible={editModalVisible}
+        onClose={() => {
+          setEditModalVisible(false);
+          setSelectedMessage(null);
+        }}
+        onSave={handleSaveEdit}
+        initialText={selectedMessage?.text || ''}
+      />
     </SafeAreaView>
   );
 }
@@ -1331,22 +1468,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
   },
   sendButton: {
-    backgroundColor: '#DCF8C6',
     borderRadius: 24,
     width: 46,
     height: 46,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#00000014',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+  },
+  sendButtonInactive: {
+    backgroundColor: '#DCF8C6',
     borderWidth: 1,
     borderColor: '#C5E6B2',
-    shadowColor: '#0000000F',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
   },
-  sendButtonDisabled: {
-    backgroundColor: '#E9F6DF',
-    borderColor: '#E9F6DF',
+  sendButtonActive: {
+    backgroundColor: WHATSAPP_PALETTE.primary,
+    borderWidth: 0,
   },
   sendIcon: {
     marginLeft: 1,
