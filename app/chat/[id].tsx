@@ -133,6 +133,7 @@ export default function ChatScreen() {
   const markedAsReadRef = useRef<Set<string>>(new Set()); // Track which messages we've already marked as read
   const previousMessageIdsRef = useRef<string[]>([]); // Track previous message ids for new message detection
   const initialLoadRef = useRef(true);
+  const initialSeparatorShownRef = useRef(false);
   const topVisibleRowRef = useRef<string | null>(null);
   const summaryRowId = 'summary-row';
   const initialAnchorAppliedRef = useRef(false);
@@ -219,26 +220,19 @@ export default function ChatScreen() {
   );
 
   useEffect(() => {
-    if (!chatId || unreadCount <= 0) {
+    if (!chatId || unreadCount <= 0 || initialSeparatorShownRef.current) {
       return;
     }
 
-    setUnreadUIState(chatId, (prev) => {
-      const nextAnchor = prev.anchorMessageId ?? firstUnreadMessageId ?? null;
-      const anchorChanged =
-        nextAnchor !== null && nextAnchor !== prev.anchorMessageId;
-
-      const nextLastUnreadCount =
-        prev.lastUnreadCount > 0 ? prev.lastUnreadCount : unreadCount;
-
-      return {
-        separatorVisible: true,
-        anchorMessageId: nextAnchor,
-        lastUnreadCount: nextLastUnreadCount,
-        separatorAcknowledged: anchorChanged ? false : prev.separatorAcknowledged,
-        separatorReady: anchorChanged ? false : prev.separatorReady,
-      };
+    setUnreadUIState(chatId, {
+      separatorVisible: true,
+      anchorMessageId: firstUnreadMessageId ?? null,
+      lastUnreadCount: unreadCount,
+      separatorAcknowledged: false,
+      separatorReady: false,
     });
+
+    initialSeparatorShownRef.current = true;
   }, [chatId, firstUnreadMessageId, unreadCount, setUnreadUIState]);
 
   useEffect(() => {
@@ -764,6 +758,7 @@ export default function ChatScreen() {
     markedAsReadRef.current.clear();
     previousMessageIdsRef.current = [];
     initialLoadRef.current = true;
+    initialSeparatorShownRef.current = false;
     setIsAtBottom(true);
     setNewMessageCount(0);
     SUMMARY_PRESETS.forEach((preset) => {
