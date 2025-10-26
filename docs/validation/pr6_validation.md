@@ -52,7 +52,7 @@ This PR implements AI-powered calendar event extraction from messages using Fire
 ```bash
 firebase functions:list
 ```
-Expected: Shows `calendarExtraction` in us-central1
+Expected: Shows `calendarExtraction` with the configured default region
 
 **✅ Test Cloud Function in Console:**
 1. Go to https://console.cloud.google.com/functions

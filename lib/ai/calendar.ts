@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import app from '@/lib/firebase/config';
+import app, { FUNCTIONS_REGION } from '@/lib/firebase/config';
 
 /**
  * Calendar Event interface
@@ -14,7 +14,7 @@ export interface CalendarEvent {
 }
 
 // Initialize Firebase Functions
-const functions = getFunctions(app);
+const functions = getFunctions(app, FUNCTIONS_REGION);
 
 /**
  * Extracts calendar events from text using AI

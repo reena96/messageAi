@@ -56,7 +56,7 @@ This PR implements AI-powered decision detection, priority classification, and i
 ```bash
 firebase functions:list
 ```
-Expected: Shows `decisionExtraction` and `priorityDetection` in us-central1
+Expected: Shows `decisionExtraction` and `priorityDetection` with the configured default region
 
 **✅ Test Decision Extraction in Console:**
 1. Go to https://console.cloud.google.com/functions

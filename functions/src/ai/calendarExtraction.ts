@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import {defineSecret} from "firebase-functions/params";
 import OpenAI from "openai";
+import {FUNCTIONS_REGION} from "../config";
 
 // Define the OpenAI API key secret
 const openaiApiKey = defineSecret("OPENAI_API_KEY");
@@ -47,6 +48,7 @@ Today's date: ${new Date().toISOString().split("T")[0]}`;
  * Extracts calendar events from text using OpenAI GPT-4 Turbo
  */
 export const calendarExtraction = functions
+  .region(FUNCTIONS_REGION)
   .runWith({
     secrets: [openaiApiKey],
     timeoutSeconds: 30,

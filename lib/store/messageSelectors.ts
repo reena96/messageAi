@@ -1,5 +1,9 @@
 import { useCallback, useMemo } from 'react';
-import { useMessageStore, MessageState } from './messageStore';
+import {
+  useMessageStore,
+  MessageState,
+  DEFAULT_UNREAD_UI_STATE,
+} from './messageStore';
 import { Message } from '@/types/message';
 import { MessageListViewModel, MessageRow } from '@/types/messageRow';
 
@@ -48,25 +52,66 @@ export const useChatMessageView = (
     (state: MessageState) => state.messages[chatId] ?? EMPTY_MESSAGES,
     [chatId]
   );
+  const selectUnreadUI = useCallback(
+    (state: MessageState) => state.unreadUI[chatId],
+    [chatId]
+  );
 
   const messages = useMessageStore(selectMessages);
+  const unreadUI = useMessageStore(selectUnreadUI);
 
   return useMemo(() => {
     const rows: MessageRow[] = [];
     if (messages.length === 0) {
-      return { rows, messages, unreadCount: 0 };
+      return {
+        rows,
+        messages,
+        unreadCount: 0,
+        firstUnreadMessageId: null,
+        firstUnreadIndex: null,
+      };
     }
 
-    const unreadCount = currentUserId
-      ? messages.filter(
-          (message) =>
-            message.senderId !== currentUserId &&
-            !message.readBy.includes(currentUserId)
-        ).length
-      : 0;
+    let unreadCount = 0;
+    let oldestUnreadIndex: number | null = null;
+    let lastDateKey: string | null = null;
+
+    const persistedUnreadUI = unreadUI ?? DEFAULT_UNREAD_UI_STATE;
+
+    if (currentUserId) {
+      messages.forEach((message, index) => {
+        const isUnread =
+          message.senderId !== currentUserId &&
+          !message.readBy.includes(currentUserId);
+
+        if (isUnread) {
+          unreadCount += 1;
+          oldestUnreadIndex = index;
+        }
+      });
+    }
 
     let unreadInserted = false;
-    let lastDateKey: string | null = null;
+
+    let separatorIndex: number | null = null;
+
+    if (persistedUnreadUI.separatorVisible) {
+      if (persistedUnreadUI.anchorMessageId) {
+        const anchorIdx = messages.findIndex(
+          (msg) => msg.id === persistedUnreadUI.anchorMessageId
+        );
+        if (anchorIdx !== -1) {
+          separatorIndex = anchorIdx;
+        }
+      }
+      if (separatorIndex === null && oldestUnreadIndex !== null) {
+        separatorIndex = oldestUnreadIndex;
+      }
+    } else if (unreadCount > 0 && oldestUnreadIndex !== null) {
+      separatorIndex = oldestUnreadIndex;
+    }
+
+    const displayUnreadCount = persistedUnreadUI.lastUnreadCount;
 
     messages.forEach((message, index) => {
       const dateKey = getDateKey(message.timestamp);
@@ -80,19 +125,12 @@ export const useChatMessageView = (
         lastDateKey = dateKey;
       }
 
-      const isUnread =
-        !!currentUserId &&
-        message.senderId !== currentUserId &&
-        !message.readBy.includes(currentUserId);
-
-      if (isUnread && unreadCount > 0 && !unreadInserted) {
-        rows.push({
-          type: 'unread-separator',
-          id: `unread-${chatId}`,
-          unreadCount,
-        });
-        unreadInserted = true;
-      }
+      const shouldInsertSeparator =
+        separatorIndex !== null &&
+        !unreadInserted &&
+        index === separatorIndex &&
+        persistedUnreadUI.separatorVisible &&
+        persistedUnreadUI.separatorReady;
 
       const prevMessage = index > 0 ? messages[index - 1] : undefined;
       const nextMessage = index < messages.length - 1 ? messages[index + 1] : undefined;
@@ -110,12 +148,35 @@ export const useChatMessageView = (
         isGroupTop,
         isGroupBottom,
         isOptimistic:
-          message.optimisticStatus === 'pending' ||
-          message.status === 'sending' ||
-          (!message.optimisticStatus && Boolean(message.tempId)),
+        message.optimisticStatus === 'pending' ||
+        message.status === 'sending' ||
+        (!message.optimisticStatus && Boolean(message.tempId)),
       });
+
+      if (shouldInsertSeparator) {
+        rows.push({
+          type: 'unread-separator',
+          id: `unread-${chatId}`,
+          unreadCount: displayUnreadCount,
+          label: displayUnreadCount === 1 ? 'new message' : 'new messages',
+        });
+        unreadInserted = true;
+      }
     });
 
-    return { rows, messages, unreadCount };
-  }, [chatId, currentUserId, messages]);
+    const firstUnreadMessageId =
+      unreadCount > 0
+        ? messages[oldestUnreadIndex ?? -1]?.id ?? null
+        : separatorIndex !== null
+        ? messages[separatorIndex]?.id ?? null
+        : null;
+
+    return {
+      rows,
+      messages,
+      unreadCount,
+      firstUnreadMessageId,
+      firstUnreadIndex: oldestUnreadIndex,
+    };
+  }, [chatId, currentUserId, messages, unreadUI]);
 };

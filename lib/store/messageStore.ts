@@ -31,6 +31,64 @@ type MessageEntityMap = Record<string, Message>;
 type MessageIdMap = Record<string, string[]>;
 type OptimisticMetadataMap = Record<string, OptimisticEntry>;
 
+export interface UnreadUIState {
+  separatorVisible: boolean;
+  floatingBadgeVisible: boolean;
+  anchorMessageId: string | null;
+  lastUnreadCount: number;
+  separatorAcknowledged: boolean;
+  separatorReady: boolean;
+}
+
+export const DEFAULT_UNREAD_UI_STATE: UnreadUIState = {
+  separatorVisible: false,
+  floatingBadgeVisible: false,
+  anchorMessageId: null,
+  lastUnreadCount: 0,
+  separatorAcknowledged: false,
+  separatorReady: false,
+};
+
+const isUnreadUIStateEqual = (a: UnreadUIState, b: UnreadUIState) =>
+  a.separatorVisible === b.separatorVisible &&
+  a.floatingBadgeVisible === b.floatingBadgeVisible &&
+  a.anchorMessageId === b.anchorMessageId &&
+  a.lastUnreadCount === b.lastUnreadCount &&
+  a.separatorAcknowledged === b.separatorAcknowledged &&
+  a.separatorReady === b.separatorReady;
+
+const cloneUnreadUIState = (state?: UnreadUIState): UnreadUIState => ({
+  separatorVisible: state?.separatorVisible ?? false,
+  floatingBadgeVisible: state?.floatingBadgeVisible ?? false,
+  anchorMessageId:
+    state?.anchorMessageId === undefined ? null : state.anchorMessageId,
+  lastUnreadCount: state?.lastUnreadCount ?? 0,
+  separatorAcknowledged: state?.separatorAcknowledged ?? false,
+  separatorReady: state?.separatorReady ?? false,
+});
+
+const mergeUnreadUIState = (
+  prev: UnreadUIState,
+  patch: Partial<UnreadUIState> | UnreadUIState
+): UnreadUIState => ({
+  separatorVisible:
+    patch.separatorVisible !== undefined ? patch.separatorVisible : prev.separatorVisible,
+  floatingBadgeVisible:
+    patch.floatingBadgeVisible !== undefined
+      ? patch.floatingBadgeVisible
+      : prev.floatingBadgeVisible,
+  anchorMessageId:
+    patch.anchorMessageId !== undefined ? patch.anchorMessageId : prev.anchorMessageId,
+  lastUnreadCount:
+    typeof patch.lastUnreadCount === 'number' ? patch.lastUnreadCount : prev.lastUnreadCount,
+  separatorAcknowledged:
+    patch.separatorAcknowledged !== undefined
+      ? patch.separatorAcknowledged
+      : prev.separatorAcknowledged,
+  separatorReady:
+    patch.separatorReady !== undefined ? patch.separatorReady : prev.separatorReady,
+});
+
 interface OptimisticEntry {
   clientGeneratedId: string;
   chatId: string;
@@ -328,6 +386,7 @@ export interface MessageState {
   hasMoreMessages: { [chatId: string]: boolean }; // Track if more messages available
   loadingOlder: { [chatId: string]: boolean }; // Track if loading older messages
   oldestMessageDoc: { [chatId: string]: QueryDocumentSnapshot | null }; // Track oldest message for pagination
+  unreadUI: { [chatId: string]: UnreadUIState }; // Per-chat UI state for unread indicators
 
   // Actions
   subscribeToMessages: (chatId: string) => Unsubscribe;
@@ -338,6 +397,13 @@ export interface MessageState {
   clearUnreadCount: (chatId: string, userId: string) => Promise<void>;
   setActivelyViewing: (chatId: string, userId: string, isViewing: boolean) => Promise<void>;
   setTyping: (chatId: string, userId: string, isTyping: boolean) => Promise<void>;
+  setUnreadUIState: (
+    chatId: string,
+    updater:
+      | Partial<UnreadUIState>
+      | ((prev: UnreadUIState) => Partial<UnreadUIState> | UnreadUIState)
+  ) => void;
+  resetUnreadUIState: (chatId: string) => void;
   clearError: () => void;
 }
 
@@ -355,6 +421,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   hasMoreMessages: {},
   loadingOlder: {},
   oldestMessageDoc: {},
+  unreadUI: {},
 
   // Subscribe to real-time messages for a chat (last 50 messages)
   subscribeToMessages: (chatId) => {
@@ -1277,6 +1344,38 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       console.error('Error setting typing:', error);
       // Don't throw - typing indicators are not critical
     }
+  },
+
+  setUnreadUIState: (chatId, updater) => {
+    set((state) => {
+      const prevStored = state.unreadUI[chatId];
+      const base = cloneUnreadUIState(prevStored);
+      const patch =
+        typeof updater === 'function' ? updater({ ...base }) : updater;
+      const next = mergeUnreadUIState(base, patch);
+
+      if (prevStored && isUnreadUIStateEqual(prevStored, next)) {
+        return state;
+      }
+
+      return {
+        unreadUI: {
+          ...state.unreadUI,
+          [chatId]: next,
+        },
+      };
+    });
+  },
+
+  resetUnreadUIState: (chatId) => {
+    set((state) => {
+      if (!state.unreadUI[chatId]) {
+        return state;
+      }
+      const next = { ...state.unreadUI };
+      delete next[chatId];
+      return { unreadUI: next };
+    });
   },
 
   clearError: () => set({ error: null }),

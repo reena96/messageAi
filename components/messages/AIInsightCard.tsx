@@ -247,7 +247,7 @@ function renderRSVPCard(
         </View>
         <View style={styles.cardContent}>
           {rsvp.event && <Text style={styles.eventName}>{rsvp.event}</Text>}
-          {rsvp.details && <Text style={styles.rsvpDetails}>{rsvp.details}</Text>}
+          {renderRSVPDetails(rsvp.details)}
 
           {/* Show RSVP counts if available */}
           {rsvp.responses && (
@@ -306,6 +306,127 @@ function renderRSVPCard(
         </View>
       </View>
     );
+  }
+
+  return null;
+}
+
+function renderRSVPDetails(details: RSVP['details']): React.ReactNode {
+  if (!details) {
+    return null;
+  }
+
+  if (typeof details === 'string') {
+    const trimmed = details.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return <Text style={styles.rsvpDetails}>{trimmed}</Text>;
+  }
+
+  if (Array.isArray(details)) {
+    const formatted = details
+      .map((value) => formatRSVPDetailsValue(value))
+      .filter((line): line is string => Boolean(line));
+
+    if (formatted.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.rsvpDetailsList}>
+        {formatted.map((line, index) => (
+          <Text key={`rsvp-detail-${index}`} style={styles.rsvpDetailRow}>
+            {line}
+          </Text>
+        ))}
+      </View>
+    );
+  }
+
+  const entries = Object.entries(details as Record<string, unknown>)
+    .map(([key, value]) => {
+      const formattedValue = formatRSVPDetailsValue(value);
+      if (!formattedValue) {
+        return null;
+      }
+      return {
+        key,
+        text: formattedValue,
+      };
+    })
+    .filter((entry): entry is { key: string; text: string } => Boolean(entry));
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.rsvpDetailsList}>
+      {entries.map(({ key, text }) => (
+        <Text key={key} style={styles.rsvpDetailRow}>
+          <Text style={styles.rsvpDetailLabel}>{formatRSVPDetailsLabel(key)}: </Text>
+          {text}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function formatRSVPDetailsLabel(rawKey: string): string {
+  const normalized = rawKey.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return 'Details';
+  }
+
+  return normalized
+    .split(' ')
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : ''))
+    .join(' ');
+}
+
+function formatRSVPDetailsValue(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const formattedItems = value
+      .map((item) => formatRSVPDetailsValue(item))
+      .filter((item): item is string => Boolean(item));
+
+    if (formattedItems.length === 0) {
+      return null;
+    }
+
+    return formattedItems.join(' • ');
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .map(([nestedKey, nestedValue]) => {
+        const formattedNested = formatRSVPDetailsValue(nestedValue);
+        if (!formattedNested) {
+          return null;
+        }
+        return `${formatRSVPDetailsLabel(nestedKey)}: ${formattedNested}`;
+      })
+      .filter((line): line is string => Boolean(line));
+
+    if (entries.length === 0) {
+      return null;
+    }
+
+    return entries.join('; ');
   }
 
   return null;
@@ -588,6 +709,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     marginTop: 4,
+  },
+  rsvpDetailsList: {
+    marginTop: 4,
+  },
+  rsvpDetailRow: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
+  },
+  rsvpDetailLabel: {
+    color: '#444',
+    fontWeight: '600',
   },
   rsvpCounts: {
     marginTop: 8,

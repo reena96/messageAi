@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import app from '@/lib/firebase/config';
+import app, { FUNCTIONS_REGION } from '@/lib/firebase/config';
 
 /**
  * RSVP interface
@@ -11,12 +11,12 @@ export interface RSVP {
   event?: string; // What event is it for
   response?: "yes" | "no" | "maybe"; // User's response
   responses?: { yes: number; no: number; maybe: number }; // Aggregate counts
-  details?: string; // Additional context
+  details?: string | any[] | Record<string, any>; // Additional context (may include structured metadata)
   confidence: number; // 0-1 range
 }
 
 // Initialize Firebase Functions
-const functions = getFunctions(app);
+const functions = getFunctions(app, FUNCTIONS_REGION);
 
 /**
  * Tracks RSVPs and invitations from text using AI
