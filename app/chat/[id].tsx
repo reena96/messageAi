@@ -625,7 +625,11 @@ export default function ChatScreen() {
 
     requestAnimationFrame(() => {
       try {
-        flatListRef.current?.scrollToIndex({ index: targetIndex, animated: false });
+        flatListRef.current?.scrollToIndex({
+          index: targetIndex,
+          animated: false,
+          viewPosition: 0.5,
+        });
       } catch (error) {
         console.warn('Failed to scroll to unread anchor', error);
       } finally {
@@ -1064,11 +1068,13 @@ export default function ChatScreen() {
             }
 
             if (item.type === 'unread-separator') {
+              const label = item.label ?? (item.unreadCount === 1 ? 'new message' : 'new messages');
+              const displayCount = item.unreadCount;
               return (
                 <View style={styles.unreadSeparator} onLayout={handleRowLayout(item.id)}>
                   <View style={styles.unreadLine} />
                   <Text style={styles.unreadText}>
-                    {item.unreadCount} UNREAD MESSAGE{item.unreadCount !== 1 ? 'S' : ''}
+                    {displayCount} {label.toUpperCase()}
                   </Text>
                   <View style={styles.unreadLine} />
                 </View>

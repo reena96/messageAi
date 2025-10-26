@@ -158,6 +158,7 @@ export const useChatMessageView = (
           type: 'unread-separator',
           id: `unread-${chatId}`,
           unreadCount: displayUnreadCount,
+          label: displayUnreadCount === 1 ? 'new message' : 'new messages',
         });
         unreadInserted = true;
       }
