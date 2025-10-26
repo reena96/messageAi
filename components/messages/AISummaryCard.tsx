@@ -58,7 +58,7 @@ function AISummaryCardComponent({
         activeOpacity={0.8}
       >
         <Ionicons name="sparkles" size={16} color="#0A84FF" style={styles.iconLeading} />
-        <Text style={styles.collapsedText}>AI summaries available</Text>
+        <Text style={styles.collapsedText}>Need more context?</Text>
         <Ionicons name="chevron-up" size={14} color="#0A84FF" />
       </TouchableOpacity>
     );
@@ -69,7 +69,7 @@ function AISummaryCardComponent({
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Ionicons name="sparkles" size={18} color="#0A84FF" />
-          <Text style={styles.title}>AI summary</Text>
+          <Text style={styles.title}>AI context</Text>
         </View>
         <TouchableOpacity
           onPress={onToggle}
