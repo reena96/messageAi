@@ -224,14 +224,17 @@ export default function ChatScreen() {
     }
 
     setUnreadUIState(chatId, (prev) => {
-      const nextAnchor = firstUnreadMessageId ?? prev.anchorMessageId ?? null;
+      const nextAnchor = prev.anchorMessageId ?? firstUnreadMessageId ?? null;
       const anchorChanged =
         nextAnchor !== null && nextAnchor !== prev.anchorMessageId;
+
+      const nextLastUnreadCount =
+        prev.lastUnreadCount > 0 ? prev.lastUnreadCount : unreadCount;
 
       return {
         separatorVisible: true,
         anchorMessageId: nextAnchor,
-        lastUnreadCount: unreadCount,
+        lastUnreadCount: nextLastUnreadCount,
         separatorAcknowledged: anchorChanged ? false : prev.separatorAcknowledged,
         separatorReady: anchorChanged ? false : prev.separatorReady,
       };
@@ -832,7 +835,7 @@ export default function ChatScreen() {
           anchorMessageId: null,
           separatorAcknowledged: false,
           separatorReady: false,
-          lastUnreadCount: unreadUIState.lastUnreadCount,
+          lastUnreadCount: 0,
         });
       }
     }
@@ -919,7 +922,7 @@ export default function ChatScreen() {
           anchorMessageId: null,
           separatorAcknowledged: false,
           separatorReady: false,
-          lastUnreadCount: unreadUIState.lastUnreadCount,
+          lastUnreadCount: 0,
         });
       }
     } catch (error) {

@@ -73,7 +73,10 @@ export const useChatMessageView = (
     }
 
     let unreadCount = 0;
-    let firstUnreadIndex: number | null = null;
+    let oldestUnreadIndex: number | null = null;
+    let lastDateKey: string | null = null;
+
+    const persistedUnreadUI = unreadUI ?? DEFAULT_UNREAD_UI_STATE;
 
     if (currentUserId) {
       messages.forEach((message, index) => {
@@ -83,17 +86,12 @@ export const useChatMessageView = (
 
         if (isUnread) {
           unreadCount += 1;
-          if (firstUnreadIndex === null) {
-            firstUnreadIndex = index;
-          }
+          oldestUnreadIndex = index;
         }
       });
     }
 
     let unreadInserted = false;
-    let lastDateKey: string | null = null;
-
-    const persistedUnreadUI = unreadUI ?? DEFAULT_UNREAD_UI_STATE;
 
     let separatorIndex: number | null = null;
 
@@ -106,11 +104,11 @@ export const useChatMessageView = (
           separatorIndex = anchorIdx;
         }
       }
-      if (separatorIndex === null && firstUnreadIndex !== null) {
-        separatorIndex = firstUnreadIndex;
+      if (separatorIndex === null && oldestUnreadIndex !== null) {
+        separatorIndex = oldestUnreadIndex;
       }
-    } else if (unreadCount > 0 && firstUnreadIndex !== null) {
-      separatorIndex = firstUnreadIndex;
+    } else if (unreadCount > 0 && oldestUnreadIndex !== null) {
+      separatorIndex = oldestUnreadIndex;
     }
 
     const displayUnreadCount = persistedUnreadUI.lastUnreadCount;
@@ -127,26 +125,12 @@ export const useChatMessageView = (
         lastDateKey = dateKey;
       }
 
-      const isUnread =
-        !!currentUserId &&
-        message.senderId !== currentUserId &&
-        !message.readBy.includes(currentUserId);
-
       const shouldInsertSeparator =
         separatorIndex !== null &&
         !unreadInserted &&
         index === separatorIndex &&
         persistedUnreadUI.separatorVisible &&
         persistedUnreadUI.separatorReady;
-
-      if (shouldInsertSeparator) {
-        rows.push({
-          type: 'unread-separator',
-          id: `unread-${chatId}`,
-          unreadCount: displayUnreadCount,
-        });
-        unreadInserted = true;
-      }
 
       const prevMessage = index > 0 ? messages[index - 1] : undefined;
       const nextMessage = index < messages.length - 1 ? messages[index + 1] : undefined;
@@ -164,15 +148,24 @@ export const useChatMessageView = (
         isGroupTop,
         isGroupBottom,
         isOptimistic:
-          message.optimisticStatus === 'pending' ||
-          message.status === 'sending' ||
-          (!message.optimisticStatus && Boolean(message.tempId)),
+        message.optimisticStatus === 'pending' ||
+        message.status === 'sending' ||
+        (!message.optimisticStatus && Boolean(message.tempId)),
       });
+
+      if (shouldInsertSeparator) {
+        rows.push({
+          type: 'unread-separator',
+          id: `unread-${chatId}`,
+          unreadCount: displayUnreadCount,
+        });
+        unreadInserted = true;
+      }
     });
 
     const firstUnreadMessageId =
       unreadCount > 0
-        ? messages[firstUnreadIndex ?? -1]?.id ?? null
+        ? messages[oldestUnreadIndex ?? -1]?.id ?? null
         : separatorIndex !== null
         ? messages[separatorIndex]?.id ?? null
         : null;
@@ -182,7 +175,7 @@ export const useChatMessageView = (
       messages,
       unreadCount,
       firstUnreadMessageId,
-      firstUnreadIndex,
+      firstUnreadIndex: oldestUnreadIndex,
     };
   }, [chatId, currentUserId, messages, unreadUI]);
 };
