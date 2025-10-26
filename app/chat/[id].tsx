@@ -11,6 +11,8 @@ import {
   LayoutChangeEvent,
   ViewToken,
   LayoutAnimation,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -26,8 +28,9 @@ import TypingIndicator from '@/components/messages/TypingIndicator';
 import AIInsightCard from '@/components/messages/AIInsightCard';
 import BackButton from '@/components/navigation/BackButton';
 import { MessageRow } from '@/types/messageRow';
-import { ContextSummaryCard } from '@/components/messages/ContextSummaryCard';
+import { AISummaryCard } from '@/components/messages/AISummaryCard';
 import { requestConversationSummary, ConversationSummaryMessage } from '@/lib/ai/summary';
+import { WHATSAPP_PALETTE, createThemedToggleStyles } from '@/styles/theme';
 
 const estimateRowHeight = (row: MessageRow): number => {
   switch (row.type) {
@@ -144,6 +147,7 @@ export default function ChatScreen() {
     twoWeeks: 0,
     month: 0,
   });
+  const summaryAnimation = useRef(new Animated.Value(0)).current;
   const createInitialPresetState = (): PresetSummaryState => ({
     status: 'idle',
     summary: null,
@@ -169,8 +173,9 @@ export default function ChatScreen() {
   });
   const presetSummariesRef = useRef(presetSummaries);
   const [selectedPreset, setSelectedPreset] = useState<SummaryPresetId>('recent25');
+  const [summaryRendered, setSummaryRendered] = useState(false);
+  const [summaryInjected, setSummaryInjected] = useState(false);
   const [summaryCollapsed, setSummaryCollapsed] = useState(false);
-  const [summaryActive, setSummaryActive] = useState(false);
 
   useEffect(() => {
     presetSummariesRef.current = presetSummaries;
@@ -276,8 +281,8 @@ export default function ChatScreen() {
 
       const participantDetails = currentChat?.participantDetails ?? {};
 
-      const formattedMessages: ConversationSummaryMessage[] = slice
-        .map((msg) => {
+      const formattedMessages = slice
+        .map<ConversationSummaryMessage | null>((msg) => {
           const raw = (msg.text ?? '').trim();
           const text =
             raw.length > 0 ? raw : msg.type === 'image' ? '[Image]' : '[Message]';
@@ -297,7 +302,10 @@ export default function ChatScreen() {
             timestamp: msg.timestamp.toISOString(),
           };
         })
-        .filter((entry): entry is ConversationSummaryMessage => Boolean(entry?.text));
+        .filter(
+          (entry): entry is ConversationSummaryMessage =>
+            entry !== null && typeof entry.text === 'string'
+        );
 
       if (formattedMessages.length === 0) {
         return null;
@@ -407,7 +415,7 @@ export default function ChatScreen() {
           },
         }));
       } catch (error) {
-        console.error('[ContextSummary] Failed to load summary', error);
+        console.error('[AISummary] Failed to load summary', error);
 
         if (summaryRequestsRef.current[presetId] !== requestId) {
           return;
@@ -452,7 +460,7 @@ export default function ChatScreen() {
   };
 
   const messageRows = useMemo(() => {
-    if (!summaryActive) {
+    if (!summaryInjected && !summaryRendered) {
       return baseRows;
     }
 
@@ -475,7 +483,15 @@ export default function ChatScreen() {
     }
 
     return [summaryRow, ...baseRows];
-  }, [baseRows, summaryActive, summaryCollapsed, summaryError, summaryStatus, summaryText]);
+  }, [
+    baseRows,
+    summaryCollapsed,
+    summaryError,
+    summaryInjected,
+    summaryRendered,
+    summaryStatus,
+    summaryText,
+  ]);
 
   const layoutMap = useMemo(() => {
     const offsets = new Map<string, number>();
@@ -549,24 +565,12 @@ export default function ChatScreen() {
         topVisibleRowRef.current = firstVisibleMessageId;
       }
 
-      if (summaryActive && !summaryVisible) {
-        const summaryIndex = messageRows.findIndex((row) => row.id === summaryRowId);
-        if (
-          summaryIndex !== -1 &&
-          lowestIndex !== Number.POSITIVE_INFINITY &&
-          lowestIndex > summaryIndex
-        ) {
-          setSummaryActive(false);
-          setSummaryCollapsed(false);
-        }
-      }
     },
     [
       chatId,
       markAsRead,
       messageRows,
       setUnreadUIState,
-      summaryActive,
       summaryRowId,
       unreadUIState?.anchorMessageId,
       unreadUIState?.separatorAcknowledged,
@@ -574,21 +578,88 @@ export default function ChatScreen() {
     ]
   );
 
-  const handleManualSummary = useCallback(() => {
-    if (summaryActive) {
-      setSummaryActive(false);
-      setSummaryCollapsed(false);
+  const dismissSummary = useCallback(() => {
+    setSummaryInjected(false);
+  }, []);
+
+  const handleToggleSummary = useCallback(() => {
+    const currentState = presetSummariesRef.current[selectedPreset];
+
+    if (summaryInjected) {
+      dismissSummary();
       return;
     }
 
-    setSummaryActive(true);
     setSummaryCollapsed(false);
+    setSummaryInjected(true);
+    setSummaryRendered(true);
+    summaryAnimation.setValue(0);
 
-    const currentState = presetSummariesRef.current[selectedPreset];
     if (!currentState || currentState.status === 'idle' || currentState.status === 'error') {
       requestSummaryForPreset(selectedPreset, { force: currentState?.status === 'error' });
     }
-  }, [requestSummaryForPreset, selectedPreset, summaryActive]);
+  }, [
+    dismissSummary,
+    requestSummaryForPreset,
+    selectedPreset,
+    summaryInjected,
+    summaryAnimation,
+  ]);
+
+  useEffect(() => {
+    if (summaryInjected) {
+      summaryAnimation.stopAnimation();
+      if (!summaryRendered) {
+        setSummaryRendered(true);
+      }
+      Animated.timing(summaryAnimation, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    } else if (summaryRendered) {
+      summaryAnimation.stopAnimation();
+      Animated.timing(summaryAnimation, {
+        toValue: 0,
+        duration: 160,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (!finished) {
+          return;
+        }
+        setSummaryRendered(false);
+        summaryAnimation.setValue(0);
+      });
+    }
+  }, [summaryAnimation, summaryInjected, summaryRendered]);
+
+  const summaryAnimatedStyle = useMemo(
+    () => ({
+      opacity: summaryAnimation,
+      transform: [
+        {
+          scale: summaryAnimation.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.96, 1],
+          }),
+        },
+        {
+          translateY: summaryAnimation.interpolate({
+            inputRange: [0, 1],
+            outputRange: [16, 0],
+          }),
+        },
+      ],
+    }),
+    [summaryAnimation]
+  );
+
+  const handleSummaryCardToggle = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSummaryCollapsed((prev) => !prev);
+  }, []);
 
   const handleSelectPreset = useCallback(
     (presetId: SummaryPresetId) => {
@@ -632,7 +703,7 @@ export default function ChatScreen() {
     });
   }, [messageRows, summaryRowId, unreadCount]);
 
-  const getItemLayout = (_data: MessageRow[] | null | undefined, index: number) => {
+  const getItemLayout = (_data: ArrayLike<MessageRow> | null | undefined, index: number) => {
     const row = messageRows[index];
     if (!row) {
       return { length: 0, offset: 0, index };
@@ -771,11 +842,13 @@ export default function ChatScreen() {
     setPresetSummaries(freshState);
     presetSummariesRef.current = freshState;
     setSelectedPreset('recent25');
-    setSummaryActive(false);
+    setSummaryInjected(false);
+    setSummaryRendered(false);
+    summaryAnimation.setValue(0);
     setSummaryCollapsed(false);
     topVisibleRowRef.current = null;
     initialAnchorAppliedRef.current = false;
-  }, [chatId]);
+  }, [chatId, summaryAnimation]);
 
   const scrollToBottom = (animated = true) => {
     if (!flatListRef.current) return;
@@ -810,6 +883,10 @@ export default function ChatScreen() {
       const newMessages = chatMessages.filter((msg) => newIds.includes(msg.id));
       const hasOwnMessage = newMessages.some((msg) => msg.senderId === user?.uid);
       const newFromOthers = newMessages.filter((msg) => msg.senderId !== user?.uid);
+
+      if (summaryInjected || summaryRendered) {
+        dismissSummary();
+      }
 
       if (hasOwnMessage || isAtBottom) {
         scrollToBottom();
@@ -849,6 +926,9 @@ export default function ChatScreen() {
     unreadUIState?.separatorAcknowledged,
     unreadUIState?.separatorVisible,
     user?.uid,
+    summaryInjected,
+    summaryRendered,
+    dismissSummary,
   ]);
 
   const hasStoredUnreadBadge =
@@ -990,34 +1070,30 @@ export default function ChatScreen() {
             </View>
           ),
           headerBackTitle: 'Back',
-          headerTintColor: '#007AFF',
+          headerTintColor: '#0C8466',
           headerLeft: () => <BackButton />,
           headerRight: () => (
             <TouchableOpacity
-              onPress={handleManualSummary}
+              onPress={handleToggleSummary}
               style={[
-                styles.contextButton,
-                summaryActive && styles.contextButtonActive,
+                styles.summarizeButton,
+                summaryInjected && styles.summarizeButtonActive,
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Generate AI summary context"
+              accessibilityLabel={
+                summaryInjected ? 'Hide AI summary' : 'Show AI summary'
+              }
             >
               <Ionicons
-                name="sparkles"
+                name="sparkles-outline"
                 size={16}
-                color={
-                  summaryActive
-                    ? '#FFFFFF'
-                    : summaryStatus === 'loading'
-                    ? '#8E8E93'
-                    : '#0A84FF'
-                }
+                color={WHATSAPP_PALETTE.primary}
                 style={{ marginRight: 6 }}
               />
               <Text
                 style={[
-                  styles.contextButtonText,
-                  summaryActive && styles.contextButtonTextActive,
+                  styles.summarizeButtonText,
+                  summaryInjected && styles.summarizeButtonTextActive,
                 ]}
               >
                 Context
@@ -1049,16 +1125,19 @@ export default function ChatScreen() {
 
             if (item.type === 'summary') {
               return (
-                <View onLayout={handleRowLayout(item.id)}>
-                  <ContextSummaryCard
+                <Animated.View
+                  onLayout={handleRowLayout(item.id)}
+                  style={summaryAnimatedStyle}
+                >
+                  <AISummaryCard
                     collapsed={item.collapsed}
                     selectedPreset={selectedPreset}
                     options={summaryOptions}
-                    onToggle={() => setSummaryCollapsed((prev) => !prev)}
+                    onToggle={handleSummaryCardToggle}
                     onSelectPreset={handleSelectPreset}
                     onRetry={(presetId) => requestSummaryForPreset(presetId, { force: true })}
                   />
-                </View>
+                </Animated.View>
               );
             }
 
@@ -1165,13 +1244,21 @@ export default function ChatScreen() {
             testID="message-input"
           />
           <TouchableOpacity
-            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+            style={[
+              styles.sendButton,
+              !inputText.trim() && styles.sendButtonDisabled,
+            ]}
             onPress={handleSend}
             disabled={!inputText.trim()}
             testID="send-button"
             activeOpacity={0.7}
           >
-            <Ionicons name="arrow-up" size={24} color="#FFFFFF" />
+            <Ionicons
+              name={inputText.trim() ? 'paper-plane' : 'paper-plane-outline'}
+              size={22}
+              color={inputText.trim() ? WHATSAPP_PALETTE.primary : '#A0B39E'}
+              style={styles.sendIcon}
+            />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -1179,30 +1266,36 @@ export default function ChatScreen() {
   );
 }
 
+const summarizeToggle = createThemedToggleStyles({
+  background: '#FFFFFF',
+  border: 'transparent',
+  text: WHATSAPP_PALETTE.primary,
+  backgroundActive: WHATSAPP_PALETTE.toggleActive,
+  borderActive: 'transparent',
+  textActive: WHATSAPP_PALETTE.primary,
+  borderRadius: 24,
+});
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ECE5DD', // WhatsApp beige background
   },
-  contextButton: {
+  summarizeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: '#F5F8FF',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    ...summarizeToggle.base,
   },
-  contextButtonActive: {
-    backgroundColor: '#0A84FF',
-  },
-  contextButtonText: {
-    color: '#0A84FF',
+  summarizeButtonActive: summarizeToggle.active,
+  summarizeButtonText: {
+    ...summarizeToggle.text,
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 14,
+    letterSpacing: 0.3,
   },
-  contextButtonTextActive: {
-    color: '#FFFFFF',
-  },
+  summarizeButtonTextActive: summarizeToggle.textActive,
   flex: {
     flex: 1,
   },
@@ -1238,21 +1331,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
   },
   sendButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 22,
-    width: 44,
-    height: 44,
+    backgroundColor: '#DCF8C6',
+    borderRadius: 24,
+    width: 46,
+    height: 46,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#C5E6B2',
+    shadowColor: '#0000000F',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   sendButtonDisabled: {
-    opacity: 0.5,
-    shadowOpacity: 0,
+    backgroundColor: '#E9F6DF',
+    borderColor: '#E9F6DF',
+  },
+  sendIcon: {
+    marginLeft: 1,
   },
   emptyContainer: {
     alignItems: 'center',

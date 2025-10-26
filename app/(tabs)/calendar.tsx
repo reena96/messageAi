@@ -4,6 +4,7 @@ import { router, useNavigation, Stack, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, where, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { firestore } from '@/lib/firebase/config';
+import { WHATSAPP_PALETTE, HEADER_TITLE_STYLE } from '@/styles/theme';
 import { useAuthStore } from '@/lib/store/authStore';
 import { CalendarEvent } from '@/lib/ai/calendar';
 import BackButton from '@/components/navigation/BackButton';
@@ -249,7 +250,8 @@ export default function CalendarScreen() {
           headerShown: canGoBack,
           headerTitle: 'Calendar',
           headerLeft: canGoBack ? () => <BackButton onPress={handleBack} /> : undefined,
-          headerTintColor: '#007AFF',
+          headerTintColor: WHATSAPP_PALETTE.primary,
+          headerTitleStyle: HEADER_TITLE_STYLE,
         }}
       />
 
@@ -288,7 +290,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#000',
+    color: HEADER_TITLE_STYLE.color,
   },
   headerSubtitle: {
     fontSize: 14,

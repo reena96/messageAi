@@ -21,7 +21,7 @@ interface SummaryOption {
   messageCount: number;
 }
 
-interface ContextSummaryCardProps {
+interface AISummaryCardProps {
   collapsed: boolean;
   selectedPreset: SummaryPresetId;
   options: SummaryOption[];
@@ -30,14 +30,14 @@ interface ContextSummaryCardProps {
   onRetry: (preset: SummaryPresetId) => void;
 }
 
-function ContextSummaryCardComponent({
+function AISummaryCardComponent({
   collapsed,
   onToggle,
   selectedPreset,
   options,
   onSelectPreset,
   onRetry,
-}: ContextSummaryCardProps) {
+}: AISummaryCardProps) {
   const selectedOption =
     options.find((option) => option.id === selectedPreset) ?? options[0];
   const selectedStatus = selectedOption?.status ?? 'idle';
@@ -155,7 +155,7 @@ function ContextSummaryCardComponent({
   );
 }
 
-export const ContextSummaryCard = memo(ContextSummaryCardComponent);
+export const AISummaryCard = memo(AISummaryCardComponent);
 
 const styles = StyleSheet.create({
   card: {

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { router, useNavigation, Stack, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { WHATSAPP_PALETTE, HEADER_TITLE_STYLE, createThemedToggleStyles } from '@/styles/theme';
 import { collection, query, where, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { firestore } from '@/lib/firebase/config';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -230,7 +231,7 @@ export default function DecisionsScreen() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color={WHATSAPP_PALETTE.primary} />
         <Text style={styles.loadingText}>Loading decisions...</Text>
       </View>
     );
@@ -245,7 +246,8 @@ export default function DecisionsScreen() {
           headerShown: canGoBack,
           headerTitle: 'Decisions',
           headerLeft: canGoBack ? () => <BackButton onPress={handleBack} /> : undefined,
-          headerTintColor: '#007AFF',
+          headerTintColor: WHATSAPP_PALETTE.primary,
+          headerTitleStyle: HEADER_TITLE_STYLE,
         }}
       />
 
@@ -263,7 +265,13 @@ export default function DecisionsScreen() {
           style={[styles.filterButton, filter === 'all' && styles.filterButtonActive]}
           onPress={() => setFilter('all')}
         >
-          <Text style={[styles.filterButtonText, filter === 'all' && styles.filterButtonTextActive]}>
+          <Text
+            style={[
+              styles.filterButtonText,
+              styles.filterText_all,
+              filter === 'all' && styles.filterButtonTextActive,
+            ]}
+          >
             All ({decisions.length})
           </Text>
         </TouchableOpacity>
@@ -272,7 +280,13 @@ export default function DecisionsScreen() {
           style={[styles.filterButton, filter === 'pending' && styles.filterButtonActive]}
           onPress={() => setFilter('pending')}
         >
-          <Text style={[styles.filterButtonText, filter === 'pending' && styles.filterButtonTextActive]}>
+          <Text
+            style={[
+              styles.filterButtonText,
+              styles.filterText_pending,
+              filter === 'pending' && styles.filterButtonTextActive,
+            ]}
+          >
             Pending ({decisions.filter(d => d.decision.status === 'pending').length})
           </Text>
         </TouchableOpacity>
@@ -281,7 +295,13 @@ export default function DecisionsScreen() {
           style={[styles.filterButton, filter === 'resolved' && styles.filterButtonActive]}
           onPress={() => setFilter('resolved')}
         >
-          <Text style={[styles.filterButtonText, filter === 'resolved' && styles.filterButtonTextActive]}>
+          <Text
+            style={[
+              styles.filterButtonText,
+              styles.filterText_resolved,
+              filter === 'resolved' && styles.filterButtonTextActive,
+            ]}
+          >
             Resolved ({decisions.filter(d => d.decision.status === 'resolved').length})
           </Text>
         </TouchableOpacity>
@@ -298,6 +318,20 @@ export default function DecisionsScreen() {
     </View>
   );
 }
+
+const filterToggle = createThemedToggleStyles({
+  background: WHATSAPP_PALETTE.tabBackground,
+  border: WHATSAPP_PALETTE.cardBorder,
+  backgroundActive: WHATSAPP_PALETTE.toggleActive,
+  borderActive: WHATSAPP_PALETTE.cardBorder,
+  textActive: undefined,
+});
+
+const FILTER_TEXT_COLORS: Record<FilterType, string> = {
+  all: '#0A84FF',
+  pending: '#FF9500',
+  resolved: '#34C759',
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -323,7 +357,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#000',
+    color: HEADER_TITLE_STYLE.color,
   },
   headerSubtitle: {
     fontSize: 14,
@@ -342,20 +376,26 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#F2F2F7',
     alignItems: 'center',
+    ...filterToggle.base,
   },
-  filterButtonActive: {
-    backgroundColor: '#007AFF',
-  },
+  filterButtonActive: filterToggle.active,
   filterButtonText: {
+    ...filterToggle.text,
     fontSize: 14,
     fontWeight: '600',
-    color: '#666',
   },
   filterButtonTextActive: {
-    color: '#fff',
+    fontWeight: '700',
+  },
+  filterText_all: {
+    color: FILTER_TEXT_COLORS.all,
+  },
+  filterText_pending: {
+    color: FILTER_TEXT_COLORS.pending,
+  },
+  filterText_resolved: {
+    color: FILTER_TEXT_COLORS.resolved,
   },
   listContent: {
     padding: 16,
