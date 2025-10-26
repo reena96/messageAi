@@ -22,7 +22,7 @@ export const conversationSummary = functions
   .region(FUNCTIONS_REGION)
   .runWith({
     secrets: [openaiApiKey],
-    timeoutSeconds: 30,
+    timeoutSeconds: 180,
     memory: "256MB",
   })
   .https.onCall(async (data: SummaryPayload) => {

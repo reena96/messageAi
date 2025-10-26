@@ -22,7 +22,9 @@ export async function requestConversationSummary(
   payload: ConversationSummaryPayload
 ): Promise<ConversationSummaryResponse> {
   try {
-    const callable = httpsCallable(functions, 'conversationSummary');
+    const callable = httpsCallable(functions, 'conversationSummary', {
+      timeout: 180000, // 3 minutes in milliseconds
+    });
     const result = await callable(payload);
     const data = result.data as ConversationSummaryResponse;
 
