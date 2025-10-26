@@ -1,5 +1,9 @@
 import { useCallback, useMemo } from 'react';
-import { useMessageStore, MessageState } from './messageStore';
+import {
+  useMessageStore,
+  MessageState,
+  DEFAULT_UNREAD_UI_STATE,
+} from './messageStore';
 import { Message } from '@/types/message';
 import { MessageListViewModel, MessageRow } from '@/types/messageRow';
 
@@ -48,8 +52,13 @@ export const useChatMessageView = (
     (state: MessageState) => state.messages[chatId] ?? EMPTY_MESSAGES,
     [chatId]
   );
+  const selectUnreadUI = useCallback(
+    (state: MessageState) => state.unreadUI[chatId],
+    [chatId]
+  );
 
   const messages = useMessageStore(selectMessages);
+  const unreadUI = useMessageStore(selectUnreadUI);
 
   return useMemo(() => {
     const rows: MessageRow[] = [];
@@ -84,6 +93,28 @@ export const useChatMessageView = (
     let unreadInserted = false;
     let lastDateKey: string | null = null;
 
+    const persistedUnreadUI = unreadUI ?? DEFAULT_UNREAD_UI_STATE;
+
+    let separatorIndex: number | null = null;
+
+    if (persistedUnreadUI.separatorVisible) {
+      if (persistedUnreadUI.anchorMessageId) {
+        const anchorIdx = messages.findIndex(
+          (msg) => msg.id === persistedUnreadUI.anchorMessageId
+        );
+        if (anchorIdx !== -1) {
+          separatorIndex = anchorIdx;
+        }
+      }
+      if (separatorIndex === null && firstUnreadIndex !== null) {
+        separatorIndex = firstUnreadIndex;
+      }
+    } else if (unreadCount > 0 && firstUnreadIndex !== null) {
+      separatorIndex = firstUnreadIndex;
+    }
+
+    const displayUnreadCount = persistedUnreadUI.lastUnreadCount;
+
     messages.forEach((message, index) => {
       const dateKey = getDateKey(message.timestamp);
       if (dateKey !== lastDateKey) {
@@ -102,16 +133,17 @@ export const useChatMessageView = (
         !message.readBy.includes(currentUserId);
 
       const shouldInsertSeparator =
-        unreadCount > 0 &&
+        separatorIndex !== null &&
         !unreadInserted &&
-        firstUnreadIndex !== null &&
-        index === firstUnreadIndex;
+        index === separatorIndex &&
+        persistedUnreadUI.separatorVisible &&
+        persistedUnreadUI.separatorReady;
 
       if (shouldInsertSeparator) {
         rows.push({
           type: 'unread-separator',
           id: `unread-${chatId}`,
-          unreadCount,
+          unreadCount: displayUnreadCount,
         });
         unreadInserted = true;
       }
@@ -139,7 +171,11 @@ export const useChatMessageView = (
     });
 
     const firstUnreadMessageId =
-      firstUnreadIndex !== null ? messages[firstUnreadIndex]?.id ?? null : null;
+      unreadCount > 0
+        ? messages[firstUnreadIndex ?? -1]?.id ?? null
+        : separatorIndex !== null
+        ? messages[separatorIndex]?.id ?? null
+        : null;
 
     return {
       rows,
@@ -148,5 +184,5 @@ export const useChatMessageView = (
       firstUnreadMessageId,
       firstUnreadIndex,
     };
-  }, [chatId, currentUserId, messages]);
+  }, [chatId, currentUserId, messages, unreadUI]);
 };

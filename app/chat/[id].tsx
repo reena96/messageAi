@@ -10,6 +10,7 @@ import {
   SafeAreaView,
   LayoutChangeEvent,
   ViewToken,
+  LayoutAnimation,
 } from 'react-native';
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -110,6 +111,14 @@ export default function ChatScreen() {
   const clearUnreadCount = useMessageStore((state) => state.clearUnreadCount);
   const setActivelyViewing = useMessageStore((state) => state.setActivelyViewing);
   const setTyping = useMessageStore((state) => state.setTyping);
+  const setUnreadUIState = useMessageStore((state) => state.setUnreadUIState);
+  const resetUnreadUIState = useMessageStore((state) => state.resetUnreadUIState);
+  const unreadUIState = useMessageStore(
+    useCallback(
+      (state) => (chatId ? state.unreadUI[chatId] : undefined),
+      [chatId]
+    )
+  );
 
   const chats = useChatStore((state) => state.chats);
 
@@ -208,6 +217,38 @@ export default function ChatScreen() {
       }),
     [presetSummaries]
   );
+
+  useEffect(() => {
+    if (!chatId || unreadCount <= 0) {
+      return;
+    }
+
+    setUnreadUIState(chatId, (prev) => {
+      const nextAnchor = firstUnreadMessageId ?? prev.anchorMessageId ?? null;
+      const anchorChanged =
+        nextAnchor !== null && nextAnchor !== prev.anchorMessageId;
+
+      return {
+        separatorVisible: true,
+        anchorMessageId: nextAnchor,
+        lastUnreadCount: unreadCount,
+        separatorAcknowledged: anchorChanged ? false : prev.separatorAcknowledged,
+        separatorReady: anchorChanged ? false : prev.separatorReady,
+      };
+    });
+  }, [chatId, firstUnreadMessageId, unreadCount, setUnreadUIState]);
+
+  useEffect(() => {
+    if (!chatId || !unreadUIState?.separatorVisible || unreadUIState.separatorReady) {
+      return;
+    }
+
+    const id = requestAnimationFrame(() => {
+      setUnreadUIState(chatId, { separatorReady: true });
+    });
+
+    return () => cancelAnimationFrame(id);
+  }, [chatId, setUnreadUIState, unreadUIState?.separatorReady, unreadUIState?.separatorVisible]);
 
   const computePresetDataset = useCallback(
     (presetId: SummaryPresetId) => {
@@ -496,6 +537,14 @@ export default function ChatScreen() {
             markedAsReadRef.current.add(msg.id);
             markAsRead(chatId, msg.id, user.uid);
           }
+
+          if (
+            chatId &&
+            unreadUIState?.anchorMessageId === row.id &&
+            !unreadUIState.separatorAcknowledged
+          ) {
+            setUnreadUIState(chatId, { separatorAcknowledged: true });
+          }
         }
       });
 
@@ -515,7 +564,17 @@ export default function ChatScreen() {
         }
       }
     },
-    [chatId, markAsRead, messageRows, summaryActive, summaryRowId, user?.uid]
+    [
+      chatId,
+      markAsRead,
+      messageRows,
+      setUnreadUIState,
+      summaryActive,
+      summaryRowId,
+      unreadUIState?.anchorMessageId,
+      unreadUIState?.separatorAcknowledged,
+      user?.uid,
+    ]
   );
 
   const handleManualSummary = useCallback(() => {
@@ -612,6 +671,9 @@ export default function ChatScreen() {
     if (atBottomNow && !isAtBottom) {
       setIsAtBottom(true);
       setNewMessageCount(0);
+      if (chatId) {
+        setUnreadUIState(chatId, { floatingBadgeVisible: false });
+      }
     } else if (!atBottomNow && isAtBottom) {
       setIsAtBottom(false);
     }
@@ -661,6 +723,15 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId, user?.uid]); // Only run when chat or user changes
 
+  useEffect(() => {
+    if (!chatId) {
+      return;
+    }
+    return () => {
+      resetUnreadUIState(chatId);
+    };
+  }, [chatId, resetUnreadUIState]);
+
   // Track that user is actively viewing this chat
   useEffect(() => {
     if (!chatId || !user) return;
@@ -709,6 +780,9 @@ export default function ChatScreen() {
     flatListRef.current.scrollToOffset({ offset: 0, animated });
     setIsAtBottom(true);
     setNewMessageCount(0);
+    if (chatId) {
+      setUnreadUIState(chatId, { floatingBadgeVisible: false });
+    }
   };
 
   // Smart auto-scroll: only scroll if at bottom OR own message
@@ -739,11 +813,55 @@ export default function ChatScreen() {
         scrollToBottom();
       } else if (newFromOthers.length > 0) {
         setNewMessageCount((prev) => prev + newFromOthers.length);
+        if (chatId) {
+          setUnreadUIState(chatId, { floatingBadgeVisible: true });
+        }
+      }
+
+      if (
+        chatId &&
+        unreadUIState?.separatorVisible &&
+        unreadUIState.separatorAcknowledged &&
+        unreadUIState.separatorReady &&
+        newFromOthers.length > 0
+      ) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setUnreadUIState(chatId, {
+          separatorVisible: false,
+          floatingBadgeVisible: false,
+          anchorMessageId: null,
+          separatorAcknowledged: false,
+          separatorReady: false,
+          lastUnreadCount: unreadUIState.lastUnreadCount,
+        });
       }
     }
 
     previousMessageIdsRef.current = messageIds;
-  }, [chatMessages, isAtBottom, user?.uid]);
+  }, [
+    chatId,
+    chatMessages,
+    isAtBottom,
+    setUnreadUIState,
+    unreadUIState?.lastUnreadCount,
+    unreadUIState?.separatorAcknowledged,
+    unreadUIState?.separatorVisible,
+    user?.uid,
+  ]);
+
+  const hasStoredUnreadBadge =
+    (unreadUIState?.floatingBadgeVisible ?? false) &&
+    (unreadUIState?.lastUnreadCount ?? 0) > 0;
+
+  const showNewMessageIndicator =
+    !isAtBottom && (newMessageCount > 0 || hasStoredUnreadBadge);
+
+  const newMessageBadgeCount =
+    newMessageCount > 0
+      ? newMessageCount
+      : unreadCount > 0
+      ? unreadCount
+      : unreadUIState?.lastUnreadCount ?? 0;
 
   // Handle typing indicator
   const handleTextChange = (text: string) => {
@@ -787,6 +905,23 @@ export default function ChatScreen() {
 
       console.log('📜 [ChatScreen] Scrolling to bottom after sending message');
       scrollToBottom();
+
+      if (
+        unreadUIState?.separatorVisible &&
+        unreadUIState.separatorAcknowledged &&
+        chatId &&
+        unreadUIState.separatorReady
+      ) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setUnreadUIState(chatId, {
+          separatorVisible: false,
+          floatingBadgeVisible: false,
+          anchorMessageId: null,
+          separatorAcknowledged: false,
+          separatorReady: false,
+          lastUnreadCount: unreadUIState.lastUnreadCount,
+        });
+      }
     } catch (error) {
       console.error('Failed to send message:', error);
     }
@@ -995,14 +1130,15 @@ export default function ChatScreen() {
         />
 
         {/* New messages indicator - show when scrolled up and new messages arrive */}
-        {!isAtBottom && newMessageCount > 0 && (
+        {showNewMessageIndicator && (
           <TouchableOpacity
             style={styles.newMessageIndicator}
             onPress={() => scrollToBottom()}
             activeOpacity={0.7}
           >
             <Text style={styles.newMessageText}>
-              {newMessageCount} new message{newMessageCount !== 1 ? 's' : ''}
+              {newMessageBadgeCount} new message
+              {newMessageBadgeCount !== 1 ? 's' : ''}
             </Text>
             <Ionicons name="chevron-down" size={16} color="#FFFFFF" />
           </TouchableOpacity>
