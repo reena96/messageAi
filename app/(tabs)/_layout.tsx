@@ -1,13 +1,22 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { WHATSAPP_PALETTE } from '@/styles/theme';
 
 export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
         headerShown: true,
-        tabBarActiveTintColor: '#007AFF',
-        tabBarInactiveTintColor: '#8E8E93',
+        tabBarActiveTintColor: WHATSAPP_PALETTE.primary,
+        tabBarInactiveTintColor: WHATSAPP_PALETTE.tabInactive,
+        tabBarActiveBackgroundColor: WHATSAPP_PALETTE.primaryMuted,
+        tabBarLabelStyle: {
+          fontWeight: '600',
+          letterSpacing: 0.2,
+        },
+        tabBarStyle: {
+          borderTopColor: 'rgba(12, 132, 102, 0.15)',
+        },
       }}
     >
       <Tabs.Screen

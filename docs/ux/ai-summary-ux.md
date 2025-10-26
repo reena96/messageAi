@@ -1,37 +1,38 @@
 # AI Summary UX
 
-This document covers the in-chat “Summarize” experience. It depends on the unread state model described in `unread-messaging-ux.md`, so complete those changes first.
+This document covers the in-chat “Context” experience. It depends on the unread state model described in `unread-messaging-ux.md`, so complete those changes first.
 
 ---
 
 ## Current State (March 2025)
 
-- [x] Header button (“Context”) injects a `ContextSummaryCard` with loading/error states.
-- [x] Summary card can be manually collapsed.
-- [ ] Summary visibility is tied to unread counts/viewability; it disappears when scrolled off-screen.
+- [x] Header button (“Context”) injects an `AISummaryCard` with loading/error states.
+- [x] Summary card stays hidden until the Context button is tapped and remains available until explicitly dismissed.
+- [x] Summaries are auto-fetched on chat open so the button reveal is instant.
 - [ ] Background precomputation is missing—summaries generate on demand.
 - [ ] Incremental (delta) summarization not yet implemented.
 - [ ] Eco Mode (24-hour cadence) not exposed in Settings.
-- [ ] Terminology still says “Context” in the UI/analytics.
+- [ ] Button/card animation minimises into the header action instead of simply disappearing.
 
 ---
 
 ## Goals
 
-1. Rename “Context” to **“Summarize”** and keep the summary card injected until the parent leaves the chat or new messages invalidate it.
-2. Pre-compute multiple summary presets (Last 25, Today, 7/14/30 days) asynchronously so the UI is instant.
-3. Append incremental summary snippets for new messages and prune stale snippets based on the selected preset window.
-4. Auto-collapse the summary card when it scrolls out of view without removing it from the list.
+1. Auto-fetch summaries when the chat mounts, and keep the cached presets ready for instant display once the parent taps **Context**.
+2. Keep the summary hidden by default; the Context button animates the cached card in/out without destroying its data, minimising it back into the header control while the card itself still collapses to a pill.
+3. Pre-compute multiple summary presets (Last 25, Today, 7/14/30 days) asynchronously so the UI is instant when expanded.
+4. Append incremental summary snippets for new messages and prune stale snippets based on the selected preset window.
 5. Provide an **Eco Mode** setting (Settings → left nav) that lowers refresh cadence to once every 24 hours, with transparent messaging.
 
 ---
 
 ## Implementation Plan
 
-1. **Rename & UI polish**
-   - Rename the component/button (`ContextSummaryCard` → `AISummaryCard`, “Context” → “Summarize”) and update analytics.
+1. **Interaction polish**
+   - Keep the `AISummaryCard` implementation but ensure the Context button copy/analytics stay aligned.
    - Introduce `summaryInjected` / `summaryCollapsed` flags (decoupled from unread counts and viewability removals).
-   - Ensure tapping Summarize toggles the existing card without scroll jumps.
+   - Auto-fetch summaries on chat mount so the cached data is ready before the parent taps Context—no extra fetch on toggle unless new messages arrive.
+   - Keep the card hidden until Context is pressed; animate the card in on press and animate it back into the button when the parent taps again. Anchor the row at the end of the message list (just after the most recent message in the inverted view).
 
 2. **Incremental Summaries**
    - Track per-preset metadata: last covered timestamp/message ID, total messages, and snippet list.
@@ -54,8 +55,8 @@ This document covers the in-chat “Summarize” experience. It depends on the u
 
 6. **Testing / Analytics**
    - Unit tests for delta append/prune logic and timer scheduling.
-   - Integration/E2E tests for Summarize button (instant load), background refresh, eco-mode toggles.
-  - Analytics: summary views, snippet append failures, refresh duration, Eco Mode adoption.
+   - Integration/E2E tests for the Context button (instant load), background refresh, eco-mode toggles, and the minimise animation.
+  - Analytics: summary views, snippet append failures, refresh duration, Eco Mode adoption, minimise/expand events.
 
 ---
 
@@ -71,9 +72,10 @@ This document covers the in-chat “Summarize” experience. It depends on the u
 
 ## PR Checklist – AI Summary
 
-- [ ] Rename Context → Summarize (UI, component names, analytics events).
-- [ ] Add `summaryInjected` / `summaryCollapsed` flags and keep the card injected during the session.
+- [ ] Keep Context button copy/analytics consistent across UI components.
+- [ ] Add `summaryInjected` / `summaryCollapsed` flags, auto-fetch on mount, and persist the card row during the session.
+- [ ] Animate the card gracefully appearing/disappearing from the Context button toggle, reusing cached presets for instant display unless new messages invalidate them.
 - [ ] Implement incremental summary append/prune per preset with metadata tracking.
 - [ ] Add staggered 30-minute background refresh plus idle detection; ensure the Summarize button uses cached results.
 - [ ] Implement Eco Mode toggle (24-hour cadence) with user-facing messaging and analytics.
-- [ ] Expand unit/integration tests and QA scenarios for collapsible summary, background refresh, and Eco Mode behavior.
+- [ ] Expand unit/integration tests and QA scenarios for collapsible summary, minimise animation, background refresh, and Eco Mode behavior.

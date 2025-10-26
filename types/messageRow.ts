@@ -11,6 +11,7 @@ export type MessageRow =
       type: 'unread-separator';
       id: string;
       unreadCount: number;
+      label?: string;
     }
   | {
       type: 'summary';
