@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useChatStore } from '@/lib/store/chatStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Chat } from '@/types/chat';
@@ -151,6 +152,20 @@ export default function ChatsScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => router.push('/(modal)/create-group')}
+              style={styles.newGroupButton}
+              accessibilityLabel="Create new group"
+            >
+              <Ionicons name="people-outline" size={24} color="#0C8466" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+
       <FlatList
         data={chats}
         renderItem={renderChatItem}
@@ -255,5 +270,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.2,
+  },
+  newGroupButton: {
+    padding: 8,
+    marginRight: 8,
   },
 });
