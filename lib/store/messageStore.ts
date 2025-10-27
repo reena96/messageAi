@@ -17,6 +17,7 @@ import {
   getDocs,
   QueryDocumentSnapshot,
 } from 'firebase/firestore';
+import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { firestore } from '../firebase/config';
 import { Message, OptimisticStatus } from '@/types/message';
@@ -26,6 +27,9 @@ import { extractDecisions } from '@/lib/ai/decisions';
 import { detectPriority } from '@/lib/ai/priority';
 import { trackRSVP } from '@/lib/ai/rsvp';
 import { extractDeadlines } from '@/lib/ai/deadlines';
+import { scheduleMessageNotification } from '@/lib/notifications/localNotifications';
+import { useAuthStore } from './authStore';
+import { useChatStore } from './chatStore';
 
 type MessageEntityMap = Record<string, Message>;
 type MessageIdMap = Record<string, string[]>;
@@ -480,6 +484,58 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               loading: false,
             };
           });
+
+          // Trigger notifications for new messages when app is backgrounded
+          const appState = AppState.currentState;
+          console.log('📱 [MessageStore] AppState:', appState, 'New messages:', firestoreMessages.length);
+
+          if (appState !== 'active') {
+            const currentUserId = useAuthStore.getState().user?.uid;
+            const chats = useChatStore.getState().chats;
+            const chat = chats.find((c) => c.id === chatId);
+
+            if (currentUserId && chat) {
+              const state = get();
+              const existingMessageIds = new Set(state.messageIdsByChat[chatId] || []);
+
+              firestoreMessages.forEach((message) => {
+                // Only notify for NEW messages from other users
+                const isNewMessage = !existingMessageIds.has(message.id);
+                const isFromOtherUser = message.senderId !== currentUserId;
+
+                console.log('🔔 [MessageStore] Message check:', {
+                  messageId: message.id,
+                  isNewMessage,
+                  isFromOtherUser,
+                  appState,
+                });
+
+                if (isNewMessage && isFromOtherUser) {
+                  // Get sender name from participant details
+                  const senderName =
+                    chat.participantDetails?.[message.senderId]?.displayName || 'Someone';
+                  const isGroup = chat.type === 'group';
+
+                  console.log('✅ [MessageStore] Scheduling notification for:', message.text.substring(0, 30));
+
+                  // Schedule notification
+                  scheduleMessageNotification(
+                    chatId,
+                    message.text,
+                    senderName,
+                    isGroup,
+                    false // isHighPriority - could be enhanced later
+                  )
+                    .then((notificationId) => {
+                      console.log('✅ [MessageStore] Notification scheduled:', notificationId);
+                    })
+                    .catch((error) => {
+                      console.error('❌ [MessageStore] Failed to schedule notification:', error);
+                    });
+                }
+              });
+            }
+          }
         },
         (error) => {
           console.error('Error subscribing to messages:', error);
