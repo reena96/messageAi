@@ -68,9 +68,20 @@ export async function analyzeSchedule(): Promise<ProactiveAssistantResponse> {
   } catch (error) {
     console.error('[Proactive AI] ❌ Analysis error:', error);
 
+    // Log detailed error info for debugging
+    if (error && typeof error === 'object') {
+      console.error('[Proactive AI] Error details:', {
+        name: (error as any).name,
+        code: (error as any).code,
+        message: (error as any).message,
+        details: (error as any).details,
+        fullError: JSON.stringify(error, null, 2),
+      });
+    }
+
     // Check for specific error types
     if (error && typeof error === 'object' && 'code' in error) {
-      const firebaseError = error as { code: string; message: string };
+      const firebaseError = error as { code: string; message: string; details?: any };
 
       if (firebaseError.code === 'unauthenticated') {
         throw new Error('You must be logged in to use the proactive assistant.');
@@ -78,10 +89,16 @@ export async function analyzeSchedule(): Promise<ProactiveAssistantResponse> {
         throw new Error('You do not have permission to access this feature.');
       } else if (firebaseError.code === 'deadline-exceeded') {
         throw new Error('Request timed out. Please try again.');
+      } else if (firebaseError.code === 'internal') {
+        // Show more details for internal errors
+        const details = firebaseError.details || firebaseError.message;
+        throw new Error(`Server error: ${details}`);
       }
     }
 
-    throw new Error('Failed to analyze schedule. Please try again later.');
+    // Include original error message if available
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Failed to analyze schedule: ${errorMessage}`);
   }
 }
 
