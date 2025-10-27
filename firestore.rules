@@ -1,0 +1,89 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user is a chat participant
+    function isChatParticipant(chatId) {
+      return isAuthenticated() &&
+             request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Chats collection
+    match /chats/{chatId} {
+      allow read: if isChatParticipant(chatId);
+      allow write: if isChatParticipant(chatId);
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read: if isChatParticipant(chatId);
+        allow create: if isChatParticipant(chatId);
+        allow update: if isChatParticipant(chatId);
+        allow delete: if false; // Don't allow deleting messages
+
+        // AI Extraction subcollection - CRITICAL FOR PROACTIVE ASSISTANT
+        match /aiExtraction/{extractionId} {
+          // Allow authenticated users to read/write AI extractions for messages they can access
+          allow read: if isChatParticipant(chatId);
+          allow write: if isChatParticipant(chatId);
+        }
+      }
+    }
+
+    // Calendar events collection (user-specific)
+    match /calendarEvents/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+
+      match /events/{eventId} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
+
+    // Decisions collection (user-specific)
+    match /decisions/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+
+      match /userDecisions/{decisionId} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
+
+    // Deadlines collection (user-specific)
+    match /deadlines/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+
+      match /userDeadlines/{deadlineId} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
+
+    // Proactive feedback collection - NEW FOR PR9
+    match /proactiveFeedback/{feedbackId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false; // Feedback is immutable
+    }
+
+    // Proactive insights collection - NEW FOR PR9
+    match /proactiveInsights/{insightId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow write: if false; // Only Cloud Functions can write insights
+    }
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
