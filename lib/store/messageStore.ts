@@ -16,7 +16,6 @@ import {
   startAfter,
   getDocs,
   QueryDocumentSnapshot,
-  setDoc,
 } from 'firebase/firestore';
 import NetInfo from '@react-native-community/netinfo';
 import { firestore } from '../firebase/config';
@@ -27,6 +26,7 @@ import { extractDecisions } from '@/lib/ai/decisions';
 import { detectPriority } from '@/lib/ai/priority';
 import { trackRSVP } from '@/lib/ai/rsvp';
 import { extractDeadlines } from '@/lib/ai/deadlines';
+import { saveAIExtractionToSubcollection } from '@/lib/ai/aiExtractionStore';
 
 type MessageEntityMap = Record<string, Message>;
 type MessageIdMap = Record<string, string[]>;
@@ -786,77 +786,16 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             await updateDoc(messageRef, { aiExtraction });
 
             // ALSO save to aiExtraction subcollection for proactive assistant
-            console.log('[AI] 💾 Saving to aiExtraction subcollection for proactive assistant');
-            const aiExtractionRef = collection(firestore, 'chats', chatId, 'messages', messageId, 'aiExtraction');
-            const timestamp = Date.now();
-
-            // Save each extraction type as a separate document
-            const savePromises: Promise<any>[] = [];
-
-            if (calendarEvents.length > 0) {
-              calendarEvents.forEach((event, idx) => {
-                savePromises.push(
-                  setDoc(doc(aiExtractionRef, `calendar-${idx}`), {
-                    type: 'calendar',
-                    userId: senderId,
-                    data: event,
-                    timestamp,
-                    messageId,
-                    chatId,
-                  })
-                );
-              });
-            }
-
-            if (deadlines.length > 0) {
-              deadlines.forEach((deadline, idx) => {
-                savePromises.push(
-                  setDoc(doc(aiExtractionRef, `deadline-${idx}`), {
-                    type: 'deadline',
-                    userId: senderId,
-                    data: deadline,
-                    timestamp,
-                    messageId,
-                    chatId,
-                    completed: deadline.completed || false,
-                  })
-                );
-              });
-            }
-
-            if (decisions.length > 0) {
-              decisions.forEach((decision, idx) => {
-                savePromises.push(
-                  setDoc(doc(aiExtractionRef, `decision-${idx}`), {
-                    type: 'decision',
-                    userId: senderId,
-                    data: decision,
-                    timestamp,
-                    messageId,
-                    chatId,
-                  })
-                );
-              });
-            }
-
-            if (rsvp && (rsvp.isInvitation || rsvp.isResponse)) {
-              savePromises.push(
-                setDoc(doc(aiExtractionRef, 'rsvp'), {
-                  type: 'rsvp',
-                  userId: senderId,
-                  data: rsvp,
-                  timestamp,
-                  messageId,
-                  chatId,
-                })
-              );
-            }
-
-            await Promise.all(savePromises).catch((err) => {
-              console.error('[AI] ⚠️ Some subcollection saves failed (non-critical):', err);
-            });
-
-            console.log('[AI] ✅ Saved to aiExtraction subcollection');
+            await saveAIExtractionToSubcollection(
+              chatId,
+              messageId,
+              senderId,
+              calendarEvents,
+              decisions,
+              priority,
+              rsvp,
+              deadlines
+            );
           } else {
             console.log('[AI] ℹ️ No AI features extracted from message');
           }
