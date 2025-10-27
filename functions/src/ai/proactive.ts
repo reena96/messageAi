@@ -44,7 +44,7 @@ export const proactiveAssistant = functions
   .region(FUNCTIONS_REGION)
   .runWith({
     secrets: [openaiApiKey, pineconeApiKey],
-    timeoutSeconds: 60,
+    timeoutSeconds: 120, // Increased from 60s to 120s for LangChain/OpenAI calls
     memory: "512MB",
   })
   .https.onCall(async (data, context) => {
