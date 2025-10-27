@@ -48,10 +48,13 @@ export async function analyzeSchedule(): Promise<ProactiveAssistantResponse> {
   try {
     console.log('[Proactive AI] 🔍 Analyzing schedule...');
 
-    // Get callable reference to Cloud Function
+    // Get callable reference to Cloud Function with extended timeout
     const proactiveAssistant = httpsCallable<void, ProactiveAssistantResponse>(
       functions,
-      'proactiveAssistant'
+      'proactiveAssistant',
+      {
+        timeout: 120000, // 120 seconds to match Cloud Function timeout
+      }
     );
 
     console.log('[Proactive AI] 📡 Calling proactiveAssistant function...');
