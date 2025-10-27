@@ -26,7 +26,7 @@ import { useChatStore } from '@/lib/store/chatStore';
 import MessageBubble from '@/components/messages/MessageBubble';
 import TypingIndicator from '@/components/messages/TypingIndicator';
 import AIInsightCard from '@/components/messages/AIInsightCard';
-import BackButton from '@/components/navigation/BackButton';
+import GroupChatHeader from '@/components/chat/GroupChatHeader';
 import { MessageRow } from '@/types/messageRow';
 import { AISummaryCard } from '@/components/messages/AISummaryCard';
 import { requestConversationSummary, ConversationSummaryMessage } from '@/lib/ai/summary';
@@ -131,6 +131,7 @@ export default function ChatScreen() {
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true); // Track if user is at bottom of chat
   const [newMessageCount, setNewMessageCount] = useState(0); // Count of new messages when scrolled up
+  const [membersModalVisible, setMembersModalVisible] = useState(false); // Track group members modal visibility
   const flatListRef = useRef<FlatList<MessageRow>>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const markedAsReadRef = useRef<Set<string>>(new Set()); // Track which messages we've already marked as read
@@ -1047,7 +1048,16 @@ export default function ChatScreen() {
         options={{
           headerShown: true,
           headerTitle: () => (
-            <View style={{ alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={() => {
+                if (currentChat?.type === 'group') {
+                  setMembersModalVisible(true);
+                }
+              }}
+              style={{ alignItems: 'center' }}
+              activeOpacity={currentChat?.type === 'group' ? 0.7 : 1}
+              disabled={currentChat?.type !== 'group'}
+            >
               <Text style={{ fontSize: 17, fontWeight: '600', color: '#000' }}>
                 {getChatDisplayName()}
               </Text>
@@ -1067,38 +1077,49 @@ export default function ChatScreen() {
                   </Text>
                 </View>
               )}
-            </View>
+              {currentChat?.type === 'group' && (
+                <Text style={{ fontSize: 12, color: '#8E8E93', marginTop: 2 }}>
+                  {currentChat.participants.length} {currentChat.participants.length === 1 ? 'member' : 'members'}
+                </Text>
+              )}
+            </TouchableOpacity>
           ),
           headerBackTitle: 'Back',
           headerTintColor: '#0C8466',
-          headerLeft: () => <BackButton />,
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={handleToggleSummary}
-              style={[
-                styles.summarizeButton,
-                summaryInjected && styles.summarizeButtonActive,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={
-                summaryInjected ? 'Hide AI summary' : 'Show AI summary'
-              }
-            >
-              <Ionicons
-                name="sparkles-outline"
-                size={16}
-                color={WHATSAPP_PALETTE.primary}
-                style={{ marginRight: 6 }}
-              />
-              <Text
-                style={[
-                  styles.summarizeButtonText,
-                  summaryInjected && styles.summarizeButtonTextActive,
-                ]}
-              >
-                Context
-              </Text>
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => router.back()} style={{ paddingLeft: 8 }}>
+              <Ionicons name="chevron-back" size={28} color="#0C8466" />
             </TouchableOpacity>
+          ),
+          headerRight: () => (
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'transparent' }}>
+              <TouchableOpacity
+                onPress={handleToggleSummary}
+                style={[
+                  styles.summarizeButton,
+                  summaryInjected && styles.summarizeButtonActive,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  summaryInjected ? 'Hide AI summary' : 'Show AI summary'
+                }
+              >
+                <Ionicons
+                  name="sparkles-outline"
+                  size={20}
+                  color={summaryInjected ? '#FFFFFF' : WHATSAPP_PALETTE.primary}
+                />
+              </TouchableOpacity>
+              {currentChat?.type === 'group' && (
+                <TouchableOpacity
+                  onPress={() => setMembersModalVisible(true)}
+                  style={styles.infoButton}
+                  accessibilityLabel="View group members"
+                >
+                  <Ionicons name="information-circle-outline" size={20} color="#0C8466" />
+                </TouchableOpacity>
+              )}
+            </View>
           ),
         }}
       />
@@ -1262,6 +1283,17 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Group Members Modal */}
+      {currentChat?.type === 'group' && (
+        <GroupChatHeader
+          chat={currentChat}
+          onToggleSummary={handleToggleSummary}
+          summaryInjected={summaryInjected}
+          membersModalVisible={membersModalVisible}
+          setMembersModalVisible={setMembersModalVisible}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -1282,13 +1314,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECE5DD', // WhatsApp beige background
   },
   summarizeButton: {
-    flexDirection: 'row',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F0F9F6',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    ...summarizeToggle.base,
+    marginRight: 8,
   },
-  summarizeButtonActive: summarizeToggle.active,
+  summarizeButtonActive: {
+    backgroundColor: '#0C8466',
+  },
   summarizeButtonText: {
     ...summarizeToggle.text,
     fontWeight: '600',
@@ -1296,6 +1332,15 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   summarizeButtonTextActive: summarizeToggle.textActive,
+  infoButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F0F9F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
   flex: {
     flex: 1,
   },

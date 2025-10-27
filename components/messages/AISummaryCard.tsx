@@ -57,9 +57,9 @@ function AISummaryCardComponent({
         accessibilityLabel="Expand AI summary"
         activeOpacity={0.8}
       >
-        <Ionicons name="sparkles" size={16} color="#0A84FF" style={styles.iconLeading} />
+        <Ionicons name="sparkles" size={16} color="#065F46" style={styles.iconLeading} />
         <Text style={styles.collapsedText}>Need more context?</Text>
-        <Ionicons name="chevron-up" size={14} color="#0A84FF" />
+        <Ionicons name="chevron-up" size={14} color="#065F46" />
       </TouchableOpacity>
     );
   }
@@ -68,7 +68,7 @@ function AISummaryCardComponent({
     <View style={styles.card} accessibilityRole="summary">
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Ionicons name="sparkles" size={18} color="#0A84FF" />
+          <Ionicons name="sparkles" size={18} color="#065F46" />
           <Text style={styles.title}>AI context</Text>
         </View>
         <TouchableOpacity
@@ -77,7 +77,7 @@ function AISummaryCardComponent({
           accessibilityLabel="Collapse AI summary"
           style={styles.toggleButton}
         >
-          <Ionicons name="chevron-down" size={16} color="#0A84FF" />
+          <Ionicons name="chevron-down" size={16} color="#065F46" />
         </TouchableOpacity>
       </View>
 
@@ -112,7 +112,7 @@ function AISummaryCardComponent({
       <View style={styles.body}>
         {isLoading ? (
           <View style={styles.loadingRow}>
-            <ActivityIndicator size="small" color="#0A84FF" />
+            <ActivityIndicator size="small" color="#0C8466" />
             <Text style={styles.loadingText}>Summarizing…</Text>
           </View>
         ) : isError ? (
@@ -159,14 +159,18 @@ export const AISummaryCard = memo(AISummaryCardComponent);
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#F5F8FF',
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: '#D9FDD3',
+    borderRadius: 8,
+    padding: 12,
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#D6E4FF',
+    borderWidth: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
   },
   header: {
     flexDirection: 'row',
@@ -182,7 +186,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 13,
     fontWeight: '600',
-    color: '#0A84FF',
+    color: '#065F46',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
@@ -199,13 +203,14 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     fontSize: 14,
-    color: '#6E6E73',
+    color: '#065F46',
     marginTop: 6,
   },
   timestampText: {
-    fontSize: 12,
-    color: '#6E6E73',
-    marginTop: 10,
+    fontSize: 11,
+    color: '#667781',
+    marginTop: 8,
+    textAlign: 'right',
   },
   loadingRow: {
     flexDirection: 'row',
@@ -213,7 +218,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginLeft: 8,
-    color: '#0A84FF',
+    color: '#065F46',
     fontSize: 14,
   },
   errorRow: {
@@ -231,29 +236,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 10,
-    backgroundColor: '#0A84FF12',
+    backgroundColor: '#0C846612',
   },
   retryText: {
-    color: '#0A84FF',
+    color: '#0C8466',
     fontWeight: '600',
     fontSize: 13,
   },
   collapsedCard: {
-    backgroundColor: '#F5F8FF',
-    borderRadius: 24,
-    paddingHorizontal: 16,
+    backgroundColor: '#D9FDD3',
+    borderRadius: 18,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#D6E4FF',
+    borderWidth: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
   },
   collapsedText: {
-    color: '#0A84FF',
+    color: '#065F46',
     fontWeight: '600',
     fontSize: 13,
   },
@@ -268,16 +277,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#0A84FF',
+    borderColor: '#0C8466',
     backgroundColor: '#FFFFFF',
   },
   segmentButtonSelected: {
-    backgroundColor: '#0A84FF',
+    backgroundColor: '#0C8466',
   },
   segmentLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#0A84FF',
+    color: '#0C8466',
   },
   segmentLabelSelected: {
     color: '#FFFFFF',

@@ -7,7 +7,6 @@ import { firestore } from '@/lib/firebase/config';
 import { WHATSAPP_PALETTE, HEADER_TITLE_STYLE } from '@/styles/theme';
 import { useAuthStore } from '@/lib/store/authStore';
 import { CalendarEvent } from '@/lib/ai/calendar';
-import BackButton from '@/components/navigation/BackButton';
 
 // Debug flag for calendar logs
 const CALENDAR_DEBUG = false;
@@ -249,7 +248,11 @@ export default function CalendarScreen() {
         options={{
           headerShown: canGoBack,
           headerTitle: 'Calendar',
-          headerLeft: canGoBack ? () => <BackButton onPress={handleBack} /> : undefined,
+          headerLeft: canGoBack ? () => (
+            <TouchableOpacity onPress={handleBack} style={{ paddingLeft: 8 }}>
+              <Ionicons name="chevron-back" size={28} color={WHATSAPP_PALETTE.primary} />
+            </TouchableOpacity>
+          ) : undefined,
           headerTintColor: WHATSAPP_PALETTE.primary,
           headerTitleStyle: HEADER_TITLE_STYLE,
         }}

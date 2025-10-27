@@ -7,7 +7,6 @@ import { collection, query, where, onSnapshot, Unsubscribe } from 'firebase/fire
 import { firestore } from '@/lib/firebase/config';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Decision } from '@/lib/ai/decisions';
-import BackButton from '@/components/navigation/BackButton';
 
 // Debug flag for decisions logs
 const DECISIONS_DEBUG = false;
@@ -245,7 +244,11 @@ export default function DecisionsScreen() {
         options={{
           headerShown: canGoBack,
           headerTitle: 'Decisions',
-          headerLeft: canGoBack ? () => <BackButton onPress={handleBack} /> : undefined,
+          headerLeft: canGoBack ? () => (
+            <TouchableOpacity onPress={handleBack} style={{ paddingLeft: 8 }}>
+              <Ionicons name="chevron-back" size={28} color={WHATSAPP_PALETTE.primary} />
+            </TouchableOpacity>
+          ) : undefined,
           headerTintColor: WHATSAPP_PALETTE.primary,
           headerTitleStyle: HEADER_TITLE_STYLE,
         }}
