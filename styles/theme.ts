@@ -9,6 +9,11 @@ export const WHATSAPP_PALETTE = {
   toggleActive: '#DDE2E8',
   headerText: '#141414',
   cardBorder: '#EAEBED',
+  background: '#F5F5F5',
+  text: '#141414',
+  textSecondary: '#6B7280',
+  success: '#34C759',
+  divider: '#E5E7EB',
 };
 
 export const HEADER_TITLE_STYLE = {
