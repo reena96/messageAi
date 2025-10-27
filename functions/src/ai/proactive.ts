@@ -111,9 +111,29 @@ Provide a concise summary (2-3 sentences) highlighting the most important items 
         new HumanMessage(userMessage),
       ];
 
+      functions.logger.info("Calling OpenAI via LangChain...");
       const parser = new StringOutputParser();
-      const response = await llm.invoke(messages);
-      const summary = await parser.invoke(response);
+      let summary: string;
+
+      try {
+        const response = await llm.invoke(messages);
+        functions.logger.info("OpenAI response received, parsing...");
+        summary = await parser.invoke(response);
+        functions.logger.info("Summary generated successfully", {
+          summaryLength: summary.length,
+        });
+      } catch (llmError) {
+        functions.logger.error("LangChain/OpenAI call failed", {
+          error: llmError,
+          errorMessage: llmError instanceof Error ? llmError.message : "Unknown",
+        });
+
+        // Fallback: Generate simple summary without LLM
+        functions.logger.info("Using fallback summary generation");
+        summary = `You have ${insights.length} schedule insight(s) that need attention: ${
+          insights.map((i) => i.title).join(", ")
+        }. Please review them to optimize your schedule.`;
+      }
 
       // Step 3: Store insights in Firestore
       functions.logger.info("Storing insights in Firestore...");
