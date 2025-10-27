@@ -730,7 +730,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         trackRSVP(text, chatId, messageId),
         extractDeadlines(text),
       ])
-        .then(([calendarEvents, decisions, priority, rsvp, deadlines]) => {
+        .then(async ([calendarEvents, decisions, priority, rsvp, deadlines]) => {
           console.log('[AI] ✅ 5-feature extraction completed');
           console.log(`[AI] 📅 Calendar events: ${calendarEvents.length}`);
           console.log(`[AI] ✅ Decisions: ${decisions.length}`);
