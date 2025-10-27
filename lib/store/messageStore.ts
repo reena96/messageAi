@@ -26,6 +26,7 @@ import { extractDecisions } from '@/lib/ai/decisions';
 import { detectPriority } from '@/lib/ai/priority';
 import { trackRSVP } from '@/lib/ai/rsvp';
 import { extractDeadlines } from '@/lib/ai/deadlines';
+import { saveAIExtractionToSubcollection } from '@/lib/ai/aiExtractionStore';
 
 type MessageEntityMap = Record<string, Message>;
 type MessageIdMap = Record<string, string[]>;
@@ -729,7 +730,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         trackRSVP(text, chatId, messageId),
         extractDeadlines(text),
       ])
-        .then(([calendarEvents, decisions, priority, rsvp, deadlines]) => {
+        .then(async ([calendarEvents, decisions, priority, rsvp, deadlines]) => {
           console.log('[AI] ✅ 5-feature extraction completed');
           console.log(`[AI] 📅 Calendar events: ${calendarEvents.length}`);
           console.log(`[AI] ✅ Decisions: ${decisions.length}`);
@@ -780,7 +781,21 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               (rsvp && (rsvp.isInvitation || rsvp.isResponse)) || deadlines.length > 0) {
             console.log(`[AI] 💾 Updating message ${messageId} with AI extraction data`);
             const messageRef = doc(firestore, 'chats', chatId, 'messages', messageId);
-            return updateDoc(messageRef, { aiExtraction });
+
+            // Update the message document with aiExtraction field
+            await updateDoc(messageRef, { aiExtraction });
+
+            // ALSO save to aiExtraction subcollection for proactive assistant
+            await saveAIExtractionToSubcollection(
+              chatId,
+              messageId,
+              senderId,
+              calendarEvents,
+              decisions,
+              priority,
+              rsvp,
+              deadlines
+            );
           } else {
             console.log('[AI] ℹ️ No AI features extracted from message');
           }

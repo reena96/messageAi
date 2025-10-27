@@ -462,6 +462,7 @@ export default function ChatScreen() {
 
   const messageRows = useMemo(() => {
     if (!summaryInjected && !summaryRendered) {
+      console.log('[Summary] No summary row - not injected/rendered');
       return baseRows;
     }
 
@@ -475,6 +476,14 @@ export default function ChatScreen() {
     };
 
     const separatorIndex = baseRows.findIndex((row) => row.type === 'unread-separator');
+
+    console.log('[Summary] Adding summary row', {
+      summaryStatus,
+      hasText: !!summaryText,
+      separatorIndex,
+      totalRows: baseRows.length + 1,
+    });
+
     if (separatorIndex >= 0) {
       return [
         ...baseRows.slice(0, separatorIndex),
@@ -584,12 +593,25 @@ export default function ChatScreen() {
   }, []);
 
   const handleToggleSummary = useCallback(() => {
+    console.log('[Summary] Toggle button pressed', {
+      chatType: currentChat?.type,
+      summaryInjected,
+      selectedPreset,
+      messageCount: chronologicalMessages.length,
+    });
+
     const currentState = presetSummariesRef.current[selectedPreset];
 
     if (summaryInjected) {
+      console.log('[Summary] Dismissing summary');
       dismissSummary();
       return;
     }
+
+    console.log('[Summary] Injecting summary card', {
+      currentState: currentState?.status,
+      willRequest: !currentState || currentState.status === 'idle' || currentState.status === 'error',
+    });
 
     setSummaryCollapsed(false);
     setSummaryInjected(true);
@@ -605,6 +627,8 @@ export default function ChatScreen() {
     selectedPreset,
     summaryInjected,
     summaryAnimation,
+    currentChat?.type,
+    chronologicalMessages.length,
   ]);
 
   useEffect(() => {

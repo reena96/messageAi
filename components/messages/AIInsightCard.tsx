@@ -30,7 +30,7 @@ interface AIInsightCardProps {
  * Displays AI-extracted insights (calendar events, decisions, priority, RSVP, deadlines) inline in chat
  * Shows below the message that triggered the extraction
  */
-export default function AIInsightCard({
+const AIInsightCard = React.memo(function AIInsightCard({
   message,
   chatId,
   currentUserId,
@@ -46,15 +46,15 @@ export default function AIInsightCard({
 
   const { calendarEvents, decisions, priority, rsvp, deadlines } = aiExtraction;
 
-  // Debug logging
-  if (__DEV__ && aiInsightCardDebug && (rsvp || deadlines)) {
-    console.log('[AIInsightCard] Rendering cards:', {
-      rsvp,
-      deadlines,
-      hasRSVP: rsvp && (rsvp.isInvitation || rsvp.isResponse),
-      hasDeadlines: deadlines && deadlines.length > 0,
-    });
-  }
+  // Debug logging (disabled - too noisy in message lists)
+  // if (__DEV__ && aiInsightCardDebug && (rsvp || deadlines)) {
+  //   console.log('[AIInsightCard] Rendering cards:', {
+  //     rsvp,
+  //     deadlines,
+  //     hasRSVP: rsvp && (rsvp.isInvitation || rsvp.isResponse),
+  //     hasDeadlines: deadlines && deadlines.length > 0,
+  //   });
+  // }
 
   // Determine what to show (priority: deadlines > RSVP > calendar > decisions > priority)
   // Show multiple cards if message has multiple important insights
@@ -84,7 +84,7 @@ export default function AIInsightCard({
         renderPriorityCard(priority!, onNavigate)}
     </>
   );
-}
+});
 
 /**
  * Render calendar event card with Add to Calendar button
@@ -776,3 +776,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+export default AIInsightCard;
