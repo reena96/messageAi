@@ -86,8 +86,6 @@ const AIInsightCard = React.memo(function AIInsightCard({
   );
 });
 
-export default AIInsightCard;
-
 /**
  * Render calendar event card with Add to Calendar button
  */
@@ -778,3 +776,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+export default AIInsightCard;
