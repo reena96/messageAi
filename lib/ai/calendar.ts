@@ -43,14 +43,20 @@ export async function extractCalendarEvents(text: string): Promise<CalendarEvent
     // Call the function
     const result = await calendarExtraction({ text });
 
-    console.log('[AI] 📦 Received response from Cloud Function:', result);
+    console.log('[AI] 📦 Received response from Cloud Function:', JSON.stringify(result, null, 2));
 
     // Extract events from response
-    const events = (result.data as any)?.events || [];
+    const responseData = result.data as any;
+    console.log('[AI] 📊 Response data:', JSON.stringify(responseData, null, 2));
+
+    const events = responseData?.events || [];
 
     console.log(`[AI] 🎯 Parsed ${events.length} calendar event(s) from response`);
     if (events.length > 0) {
-      console.log('[AI] Events:', JSON.stringify(events, null, 2));
+      console.log('[AI] ✅ Events extracted:', JSON.stringify(events, null, 2));
+    } else {
+      console.warn('[AI] ⚠️ No calendar events found in response');
+      console.warn('[AI] 🔍 Full result.data:', JSON.stringify(result.data, null, 2));
     }
 
     return events as CalendarEvent[];
