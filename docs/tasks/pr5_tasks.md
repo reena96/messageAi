@@ -1,15 +1,15 @@
 # PR #5: Group Chat + Push Notifications - Task Breakdown
 
-**Estimated Time:** 8-10 hours
+**Estimated Time:** 5-6 hours
 **Dependencies:** PR #1 (Authentication), PR #2 (Core UI), PR #3 (Messaging), PR #4 (Offline Support)
 **🎯 MVP CHECKPOINT:** This PR completes all 11 MVP requirements
 
-**⚠️ IMPORTANT PREREQUISITES:**
-- Physical iOS device required for push notification testing (Simulator doesn't support remote push)
-- `GoogleService-Info.plist` configured for APNs
-- `google-services.json` configured for FCM
-- Android emulator with Google Play Services installed
-- Expo project ID configured in `app.json`
+**📱 NOTIFICATION APPROACH:**
+- **Local Notifications** + In-App Banners (not remote push)
+- Firestore real-time listeners provide instant message delivery
+- Same UX as remote push, simpler implementation
+- Fully testable in iOS Simulator and Android Emulator
+- No native module configuration required
 
 ---
 
@@ -195,58 +195,28 @@ Before starting, read these files in order:
 
 ---
 
-### **Task 4: Setup Push Notifications - Client**
-**Time:** 3-4 hours
-**Action:** CREATE notification setup module using `expo-notifications`
+### **Task 4: Setup Local Notifications + In-App Banners**
+**Time:** 1.5 hours
+**Action:** CREATE notification system using local notifications
 
-**⚠️ CRITICAL CONSTRAINTS:**
-- Uses `expo-notifications` (NOT `@react-native-firebase/messaging`)
-- Requires `expo prebuild` for native module configuration
-- iOS Simulator CANNOT test remote push - use physical device
-- Android emulator requires Google Play Services
+**✅ ADVANTAGES:**
+- Uses `expo-notifications` for local notifications only (no remote push setup)
+- No `expo prebuild` required
+- Fully testable in iOS Simulator and Android Emulator
+- Firestore real-time listeners provide instant message delivery
+- Same UX as remote push notifications
 
-#### Subtask 4.1: Install and Configure Dependencies
-- [ ] Run: `npx expo install expo-notifications expo-device`
-- [ ] Update `app.json` with expo-notifications plugin:
-  ```json
-  "plugins": [
-    "expo-router",
-    "@react-native-google-signin/google-signin",
-    [
-      "expo-notifications",
-      {
-        "icon": "./assets/notification-icon.png",
-        "color": "#0C8466",
-        "sounds": ["./assets/notification-sound.wav"],
-        "mode": "production"
-      }
-    ]
-  ]
-  ```
-- [ ] Add iOS entitlements in `app.json`:
-  ```json
-  "ios": {
-    "entitlements": {
-      "aps-environment": "production"
-    }
-  }
-  ```
-- [ ] Add Android permissions in `app.json`:
-  ```json
-  "android": {
-    "googleServicesFile": "./google-services.json",
-    "permissions": ["POST_NOTIFICATIONS", "VIBRATE"]
-  }
-  ```
-- [ ] Run: `npx expo prebuild --clean` (generates native iOS/Android projects)
-- [ ] Verify: `ios/` and `android/` directories created
+#### Subtask 4.1: Install Dependencies
+- [ ] Run: `npx expo install expo-notifications`
+- [ ] No `app.json` changes needed (local notifications work out of the box)
+- [ ] No `expo prebuild` required
 
-**Pattern:** Native module setup with Expo config plugins
+**Pattern:** Simple npm install, no native configuration
 
-#### Subtask 4.2: Create `lib/notifications/setup.ts`
+#### Subtask 4.2: Create `lib/notifications/localNotifications.ts`
 - [ ] Create new directory: `lib/notifications/`
-- [ ] Create new file: `lib/notifications/setup.ts`
-- [ ] Import `expo-notifications`, `expo-device`, Firestore
+- [ ] Create new file: `lib/notifications/localNotifications.ts`
+- [ ] Import `expo-notifications`, `Platform`
 - [ ] Configure notification handler for foreground:
   ```typescript
   Notifications.setNotificationHandler({
@@ -254,62 +224,68 @@ Before starting, read these files in order:
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
     }),
   });
   ```
 - [ ] Define Android notification channels:
   - `default` - Default message notifications (importance: DEFAULT)
   - `high-priority` - Urgent notifications (importance: HIGH, vibration)
-  - `digest` - Daily summaries (importance: LOW, no sound)
 - [ ] Implement `setupAndroidChannels()`:
   - [ ] Only run on `Platform.OS === 'android'`
   - [ ] Call `Notifications.setNotificationChannelAsync()` for each channel
-- [ ] Implement `requestNotificationPermission(userId)`:
-  - [ ] Check `Device.isDevice` (return false if simulator/emulator)
+- [ ] Implement `requestNotificationPermissions()`:
   - [ ] Get existing permission status: `Notifications.getPermissionsAsync()`
   - [ ] If not granted, request: `Notifications.requestPermissionsAsync()`
-  - [ ] If granted: call `setupNotifications(userId)` and `setupAndroidChannels()`
+  - [ ] Call `setupAndroidChannels()` on Android
   - [ ] Return boolean (granted or not)
-- [ ] Implement `setupNotifications(userId)`:
-  - [ ] Get Expo Push Token: `Notifications.getExpoPushTokenAsync({ projectId })`
-  - [ ] Save token to Firestore: `users/{userId}/devices/{deviceId}`
-  - [ ] Token document includes: `token`, `platform`, `deviceId`, `deviceName`, `lastSeen`
-  - [ ] Listen for token refresh: `Notifications.addPushTokenListener()`
-  - [ ] Update token in Firestore when refreshed
-  - [ ] Return cleanup function
+- [ ] Implement `scheduleMessageNotification(chatId, messageText, senderName, isGroup)`:
+  - [ ] Build notification content:
+    - Title: group name or sender name
+    - Body: message text (truncate to 100 chars)
+    - Data: `{ chatId, type: 'new_message' }`
+  - [ ] Schedule immediately: `trigger: null`
+  - [ ] Include sound and badge
+  - [ ] Return notification ID
 - [ ] Implement `getInitialNotification()`:
   - [ ] Call `Notifications.getLastNotificationResponseAsync()`
   - [ ] Return notification if present
 - [ ] Implement `getChatIdFromNotification(notification)`:
   - [ ] Extract `chatId` from `notification.request.content.data`
 - [ ] Implement helper functions:
-  - [ ] `scheduleLocalNotification()` - for future deadline reminders
-  - [ ] `cancelScheduledNotification()` - cancel by identifier
-  - [ ] `setBadgeCount()` - update app badge
+  - [ ] `setBadgeCount(count)` - update app badge
   - [ ] `getBadgeCount()` - get current badge count
+  - [ ] `clearAllNotifications()` - clear notification tray
 
-**Pattern:** Async/await, native Expo Notifications API, device token subcollection
+**Pattern:** Local notifications only, no token storage, triggered by Firestore listener
 
 #### Subtask 4.3: Create `lib/notifications/useNotifications.ts` Hook
 - [ ] Create new file: `lib/notifications/useNotifications.ts`
 - [ ] Import `useEffect`, `useRef`, `useRouter`, `expo-notifications`
 - [ ] Implement `useNotifications()` hook:
   - [ ] Handle initial notification (app opened from notification)
-  - [ ] Listen for foreground notifications: `addNotificationReceivedListener()`
   - [ ] Listen for notification taps: `addNotificationResponseReceivedListener()`
   - [ ] Navigate to chat: `router.push('/chat/${chatId}')`
   - [ ] Cleanup listeners on unmount
 
 **Pattern:** React Hook for notification navigation
 
-#### Subtask 4.4: Integrate into `app/_layout.tsx`
+#### Subtask 4.4: Integrate Local Notifications into Message Listener
+- [ ] Open existing file: `lib/store/messageStore.ts`
+- [ ] Import `scheduleMessageNotification` from local notifications
+- [ ] In existing Firestore listener (`subscribeToMessages`):
+  - [ ] When new message arrives from OTHER user (not own message)
+  - [ ] Check if app is in background: `AppState.currentState !== 'active'`
+  - [ ] If backgrounded, call `scheduleMessageNotification()`
+  - [ ] Pass chatId, message text, sender name, isGroup
+
+**Pattern:** Trigger local notification when message arrives while app backgrounded
+
+#### Subtask 4.5: Request Permissions in `app/_layout.tsx`
 - [ ] Open existing file: `app/_layout.tsx`
-- [ ] Import `useNotifications` and `requestNotificationPermission`
+- [ ] Import `useNotifications` and `requestNotificationPermissions`
 - [ ] Call `useNotifications()` hook at top level
 - [ ] In auth listener `useEffect`, when user logs in:
-  - [ ] Call `await requestNotificationPermission(user.uid)`
+  - [ ] Call `await requestNotificationPermissions()`
   - [ ] Log result with `debugLog()`
 - [ ] Handle errors gracefully (log, don't crash)
 
@@ -317,109 +293,35 @@ Before starting, read these files in order:
 
 ---
 
-### **Task 5: Create Cloud Function for Notifications**
-**Time:** 2-3 hours
-**Action:** CREATE Cloud Function for Expo Push Notifications
+### **Task 5: Add In-App Notification Banner** (Optional Enhancement)
+**Time:** 30 minutes
+**Action:** CREATE in-app banner component for foreground messages
 
-**⚠️ NOTE:** This function sends to Expo Push Notification service, NOT directly to FCM/APNs
+**📱 NOTE:** This provides better UX when app is open
 
-#### Subtask 5.1: Update Firestore Rules for Device Tokens
-- [ ] Open or create `firestore.rules` in project root
-- [ ] Add rules for `users/{userId}/devices/{deviceId}` subcollection:
-  ```
-  match /users/{userId}/devices/{deviceId} {
-    allow read, write: if request.auth.uid == userId;
-  }
-  ```
-- [ ] Deploy rules: `firebase deploy --only firestore:rules`
+#### Subtask 5.1: Create `components/notifications/InAppBanner.tsx` (Optional)
+- [ ] Create new directory: `components/notifications/`
+- [ ] Create new file: `components/notifications/InAppBanner.tsx`
+- [ ] Build animated banner component:
+  - [ ] Shows at top of screen when message arrives (app foregrounded)
+  - [ ] Displays sender name, message preview
+  - [ ] Auto-dismisses after 3 seconds
+  - [ ] Tappable to navigate to chat
+  - [ ] Slide-down animation
+- [ ] Import `react-native-reanimated` for smooth animations
+- [ ] Add styles: WhatsApp-style banner with shadow
 
-**Pattern:** Secure device token storage per user
+**Pattern:** Optional enhancement for better foreground UX
 
-#### Subtask 5.2: Create `functions/src/notifications/sendMessageNotification.ts`
-- [ ] Create new directory: `functions/src/notifications/`
-- [ ] Create new file: `functions/src/notifications/sendMessageNotification.ts`
-- [ ] Import Firebase functions, admin SDK, and `FUNCTIONS_REGION` from `../config`
-- [ ] Implement `sendMessageNotification`:
-  - [ ] Trigger: `.region(FUNCTIONS_REGION).firestore.document('chats/{chatId}/messages/{messageId}').onCreate()`
-  - [ ] Get message data from snapshot
-  - [ ] Get chat document from Firestore
-  - [ ] Filter recipients (exclude sender from participants)
-  - [ ] If no recipients, return early with log
-  - [ ] Get sender's display name from users collection
-  - [ ] Query all device tokens for recipients:
-    - [ ] For each recipient: `users/{userId}/devices` where `token != null`
-    - [ ] Collect tokens with platform metadata
-  - [ ] If no tokens found, return early with log
-  - [ ] Build notification title based on chat type:
-    - [ ] Group: `chatData.groupName || 'Group Chat'`
-    - [ ] One-on-one: sender's name
-  - [ ] Build notification body:
-    - [ ] Group: `"${senderName}: ${messageData.text}"`
-    - [ ] One-on-one: `messageData.text`
-    - [ ] Truncate to 100 chars if needed
-  - [ ] Determine priority from AI extraction:
-    - [ ] If `message.aiExtraction.priority.level` is 'critical' or 'high' → priority = 'high', channelId = 'high-priority'
-    - [ ] Otherwise → priority = 'normal', channelId = 'default'
-  - [ ] Build platform-specific messages using `admin.messaging().Message`:
-    - [ ] For iOS: Configure APNS with sound, badge, and `interruption-level: time-sensitive` for high priority
-    - [ ] For Android: Configure Android-specific settings with channelId, priority, sound
-    - [ ] Include data payload: `{ chatId, messageId, senderId, type: 'new_message', priority }`
-  - [ ] Send notifications: `admin.messaging().sendEach(messages)`
-  - [ ] Log success and failure counts
-  - [ ] For failures, log error messages (helps debug invalid tokens)
-  - [ ] Return `{ success: successCount, failures: failureCount }`
+#### Subtask 5.2: Integrate Banner into Message Listener (Optional)
+- [ ] Open existing file: `lib/store/messageStore.ts`
+- [ ] Import InAppBanner state management
+- [ ] When new message arrives AND app is foregrounded:
+  - [ ] Trigger banner display
+  - [ ] Pass sender name, message text, chatId
+- [ ] Banner auto-hides after 3 seconds OR when tapped
 
-**Pattern:** Cloud Function onCreate trigger, Expo Push Token delivery, platform-specific configs
-
-#### Subtask 5.3: Update `functions/src/index.ts`
-- [ ] Open existing file: `functions/src/index.ts`
-- [ ] Add export: `export { sendMessageNotification } from './notifications/sendMessageNotification';`
-
-#### Subtask 5.4: Build and Deploy Cloud Function
-- [ ] Navigate to functions directory: `cd functions`
-- [ ] Verify dependencies exist (should already have `firebase-admin`, `firebase-functions`)
-- [ ] Build: `npm run build`
-- [ ] Fix any TypeScript errors (check imports from `../config`)
-- [ ] Deploy: `firebase deploy --only functions:sendMessageNotification`
-- [ ] Verify deployment in Firebase Console → Functions
-- [ ] Check function logs for any initialization errors
-
-**Pattern:** Incremental deployment, verify in console before testing
-
-#### Subtask 5.5: Test Notification Flow End-to-End
-**⚠️ REQUIRES PHYSICAL iOS DEVICE**
-
-- [ ] Build development client for physical device: `eas build --profile development --platform ios`
-- [ ] Install dev client on physical iPhone
-- [ ] Log in with Test User 1 on physical device
-- [ ] Grant notification permissions when prompted
-- [ ] Verify Expo Push Token saved in Firestore: `users/{uid}/devices/{deviceId}`
-- [ ] Log in with Test User 2 on Simulator/different device
-- [ ] Send message from User 2 to User 1
-- [ ] **Expected:** Notification appears on User 1's physical device
-- [ ] Tap notification → app opens to correct chat
-- [ ] **Verify in Firebase Console:**
-  - [ ] Cloud Function execution logged
-  - [ ] No errors in function logs
-  - [ ] Success count = 1, failures = 0
-
-**Testing Matrix:**
-
-| Scenario | Device State | Expected Behavior |
-|----------|--------------|-------------------|
-| New message | App in foreground | In-app notification banner |
-| New message | App in background | Lock screen notification |
-| New message | App quit/killed | Lock screen notification |
-| Tap notification | Any state | Opens app to correct chat |
-| High priority message | Background | Time-sensitive alert (iOS) / High importance (Android) |
-
-**Common Issues & Fixes:**
-- Token not saved → Check Firestore rules, verify `requestNotificationPermission()` called
-- No notification received → Check Cloud Function logs for errors, verify token is valid Expo Push Token
-- Notification received but can't tap → Check deep linking setup in `useNotifications` hook
-- iOS: "This request is not supported" → Using Simulator instead of physical device
-
-**Integration:** Automatically triggered when messages created, sends to Expo Push service
+**Pattern:** Show banner for foreground messages, local notification for background
 
 ---
 
